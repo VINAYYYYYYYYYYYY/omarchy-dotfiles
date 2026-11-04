@@ -1,0 +1,16 @@
+{
+  "logo": {
+    "type": "none"
+  },
+  "display": {
+    "showErrors": true
+  },
+  "modules": [
+    {
+      "type": "command",
+      "key": " ",
+      "format": "{result}",
+      "text": "python3 \"$HOME/.config/fastfetch/dashboard.py\""
+    }
+  ]
+}
