@@ -171,9 +171,8 @@ Item {
   }
 
   // ---------------------------------------------------------- banked resets
-  // Redeems one banked limit reset: Codex through codex-reset.py (Codex's own
-  // account/rateLimitResetCredit/consume), Claude through claude-resets.py
-  // (the reset_rate_limits call Claude Code makes). Then re-reads that agent.
+  // Redeems one banked Codex limit reset through codex-reset.py (Codex's own
+  // account/rateLimitResetCredit/consume), then re-reads that agent.
   property string resetMessage: ""
   property string resetProvider: ""
   readonly property bool resetRunning: resetProcess.running
@@ -208,8 +207,6 @@ Item {
     if (providerId === "codex") {
       command = ["/usr/bin/python3", "-I", dir + "codex-reset.py"]
       if (creditId) command.push(String(creditId))
-    } else if (providerId === "claude" && creditId) {
-      command = ["/usr/bin/python3", "-I", dir + "claude-resets.py", "claim", String(creditId)]
     } else return
     resetMessage = ""
     resetProvider = providerId

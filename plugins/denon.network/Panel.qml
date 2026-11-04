@@ -750,7 +750,22 @@ Panel {
     return Model.requiresCredentials(security, WifiSecurityType.Open, WifiSecurityType.Owe)
   }
 
+  // Enterprise (802.1X) networks need certificate settings this panel doesn't
+  // collect, so they go to NetworkManager's own setup tool instead.
+  function isEnterpriseNetwork(ssid) {
+    var n = networkForSsid(ssid)
+    return !!n && (n.security === WifiSecurityType.Wpa2Eap || n.security === WifiSecurityType.WpaEap)
+  }
+
+  function openEnterpriseSetup() {
+    Quickshell.execDetached(["omarchy-launch-floating-terminal-with-presentation", "nmtui", "connect"])
+  }
+
   function openPasswordPrompt(ssid) {
+    if (isEnterpriseNetwork(ssid)) {
+      openEnterpriseSetup()
+      return
+    }
     if (passwordSsid !== ssid) {
       passwordText = ""
       identityText = ""
@@ -828,26 +843,6 @@ Panel {
 
   function connectWithPassphrase(ssid, passphrase) {
     runNetworkAction("connect", networkForSsid(ssid), function(network) { network.connectWithPsk(passphrase) })
-  }
-
-  function connectEnterprise(ssid, identity, passphrase) {
-    runNetworkAction("connect", networkForSsid(ssid), function(network) {
-      enterpriseConnect.secret = passphrase
-      enterpriseConnect.command = ["bash", "-c", Model.enterpriseConnectScript, "nmcli-eap", ssid, identity]
-      enterpriseConnect.running = true
-    })
-  }
-
-  // Creates and activates the 802.1X profile (see Model.enterpriseConnectScript).
-  // The password goes over stdin, never argv.
-  Process {
-    id: enterpriseConnect
-    property string secret: ""
-    stdinEnabled: true
-    onStarted: {
-      write(secret + "\n")
-      secret = ""
-    }
   }
 
   function disconnect(network) {
@@ -1939,7 +1934,7 @@ Panel {
     function submitCredentials() {
       if (!net || root.busy || root.passwordText.length === 0) return
       if (!isEnterprise) return root.connectWithPassphrase(net.ssid, root.passwordText)
-      if (root.identityText.length > 0) root.connectEnterprise(net.ssid, root.identityText, root.passwordText)
+      root.openEnterpriseSetup()
     }
 
     Connections {
