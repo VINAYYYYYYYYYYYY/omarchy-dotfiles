@@ -8,13 +8,16 @@ Most of it was made by describing what I wanted to Claude Code, having it show m
 
 <table>
 <tr>
-<td width="33%"><img src="docs/fastfetch-corner.webp" alt="fastfetch dashboard and the control corner, Artzen theme"></td>
-<td width="33%"><img src="docs/theme-studio.webp" alt="Theme Studio over the Arc Blueberry theme"></td>
-<td width="33%"><img src="docs/menu-calendar.webp" alt="Calendar and the search-first menu, Arc Blueberry theme"></td>
+<td width="50%"><img src="docs/fastfetch-corner.webp" alt="fastfetch dashboard and the control corner, Artzen theme"></td>
+<td width="50%"><img src="docs/usage-limits.webp" alt="Claude Code and Codex usage limits drawer, Artzen theme"></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/theme-studio.webp" alt="Theme Studio over the Arc Blueberry theme"></td>
+<td width="50%"><img src="docs/menu-calendar.webp" alt="Calendar and the search-first menu, Arc Blueberry theme"></td>
 </tr>
 </table>
 
-<sub>Themes: Artzen and Arc Blueberry. The screenshots show my own name ("MARY") set as the menu and fastfetch title; a fresh install says OMARCHY until you <a href="#make-it-yours">set yours</a>.</sub>
+<sub>Themes: Artzen and Arc Blueberry. The screenshots show my own name ("MARY") set as the menu and fastfetch title; a fresh install says OMARCHY until you <a href="#make-it-yours">set yours</a>. The usage drawer's banked-reset button ships for Codex only; the Claude one in the screenshot isn't included.</sub>
 
 ## What's in it
 
