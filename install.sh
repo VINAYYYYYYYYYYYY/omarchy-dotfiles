@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install these dots on top of a working Omarchy install.
-# Everything it replaces is copied to ~/.config/omarchy-dots-backup/<time>-<id>/ first.
+# Everything it replaces is copied to ~/.config/omarchy-dotfiles-backup/<time>-<id>/ first.
 #
 #   ./install.sh          install, asking once before changing anything
 #   ./install.sh --yes    install without asking
@@ -39,15 +39,15 @@ This will install into your home folder:
   - helper scripts         -> ~/.local/share/, ~/.local/bin/
   - Hello Lock, Theme Studio, Tricky Tiles and Softly from their own GitHub repos
 
-Anything it replaces is backed up to a new folder in ~/.config/omarchy-dots-backup/.
+Anything it replaces is backed up to a new folder in ~/.config/omarchy-dotfiles-backup/.
 EOF
   read -r -p "Continue? [y/N] " answer || answer=""
   [[ "$answer" == [yY]* ]] || { echo "Nothing changed."; exit 0; }
 fi
 
 # A fresh, unique backup folder for this run.
-mkdir -p "$config/omarchy-dots-backup"
-backup="$(mktemp -d "$config/omarchy-dots-backup/$(date +%Y%m%d-%H%M%S)-XXXX")"
+mkdir -p "$config/omarchy-dotfiles-backup"
+backup="$(mktemp -d "$config/omarchy-dotfiles-backup/$(date +%Y%m%d-%H%M%S)-XXXX")"
 
 # Save a copy of a path (if it exists) into the backup, keeping its place
 # relative to $HOME. Only the first copy of each path is kept.

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/wordmark.svg" alt="Omarchy Dots" width="640">
+<img src="docs/wordmark.svg" alt="My Omarchy Dotfiles" width="760">
 
 <p><strong>My whole Omarchy desktop, ready to install.</strong><br>
 A frosted rail that wraps the screen as one surface, a quarter-circle control corner, a search-first menu, recessed windows and a fastfetch dashboard.</p>
@@ -114,12 +114,12 @@ The screenshots use two themes. Their wallpapers come with them.
 You need a working Omarchy 4 install.
 
 ```bash
-git clone https://github.com/denonmaryland/omarchy-dots
-cd omarchy-dots
+git clone https://github.com/denonmaryland/omarchy-dotfiles
+cd omarchy-dotfiles
 ./install.sh
 ```
 
-The script lists what it will change and asks once. Everything it replaces is copied to `~/.config/omarchy-dots-backup/<time>/` first. It never touches `hypr/monitors.lua`.
+The script lists what it will change and asks once. Everything it replaces is copied to `~/.config/omarchy-dotfiles-backup/<time>/` first. It never touches `hypr/monitors.lua`.
 
 Then log out and back in, or run `hyprctl reload && omarchy restart shell`.
 
@@ -131,8 +131,8 @@ Paste this repository's link into your coding agent (Claude Code, Codex and so o
 2. Clone the repo and run the installer without the prompt:
 
    ```bash
-   git clone https://github.com/denonmaryland/omarchy-dots ~/omarchy-dots
-   ~/omarchy-dots/install.sh --yes
+   git clone https://github.com/denonmaryland/omarchy-dotfiles ~/omarchy-dotfiles
+   ~/omarchy-dotfiles/install.sh --yes
    ```
 
 3. Check that `omarchy plugin list --json` shows `denon.shell` and `hello-lock` enabled, and pass on any "could not add" lines the installer printed.
@@ -167,7 +167,7 @@ Without it, both say OMARCHY. The big fastfetch logo is Omarchy's own `~/.config
 
 ## Undo
 
-Copy the files from `~/.config/omarchy-dots-backup/<time>/` back into your home folder, then run `hyprctl reload && omarchy restart shell`. To drop a single plugin: `omarchy plugin disable <id>`.
+Copy the files from `~/.config/omarchy-dotfiles-backup/<time>/` back into your home folder, then run `hyprctl reload && omarchy restart shell`. To drop a single plugin: `omarchy plugin disable <id>`.
 
 ## Notes
 
