@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/wordmark.svg" alt="My Omarchy Dotfiles" width="760">
+<img src="docs/wordmark.svg" alt="My Omarchy Dotfiles" width="700">
 
 <p><strong>My whole Omarchy desktop, ready to install.</strong><br>
 A frosted rail that wraps the screen as one surface, a quarter-circle control corner, a search-first menu, recessed windows and a fastfetch dashboard.</p>
