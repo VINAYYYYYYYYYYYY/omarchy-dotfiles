@@ -1,10 +1,33 @@
-# omarchy-dots
+<div align="center">
 
-My Omarchy setup: a frosted left rail that wraps the screen as one surface, a quarter-circle control corner, a search-first menu, recessed windows, and a fastfetch dashboard. Built on [Omarchy](https://omarchy.org) 4.
+<img src="docs/wordmark.svg" alt="Omarchy Dots" width="640">
 
-Most of it was made by describing what I wanted to Claude Code, having it show me ten or more takes, then iterating on the one I liked.
+<p><strong>My whole Omarchy desktop, ready to install.</strong><br>
+A frosted rail that wraps the screen as one surface, a quarter-circle control corner, a search-first menu, recessed windows and a fastfetch dashboard.</p>
 
-![fastfetch dashboard next to Claude Code, Artzen theme](docs/fastfetch-claude.webp)
+<p>
+<a href="https://omarchy.org"><img alt="Omarchy 4" src="https://img.shields.io/badge/omarchy-4-7AA2F7?style=flat-square"></a>
+<img alt="Hyprland 0.56+" src="https://img.shields.io/badge/hyprland-0.56%2B-1E2330?style=flat-square">
+<img alt="24 plugins" src="https://img.shields.io/badge/shell%20plugins-24-1E2330?style=flat-square">
+<img alt="Backs up first" src="https://img.shields.io/badge/installer-backs%20up%20first-1E2330?style=flat-square">
+<a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-1E2330?style=flat-square"></a>
+</p>
+
+<img src="docs/fastfetch-claude.webp" alt="fastfetch dashboard next to Claude Code, Artzen theme" width="880">
+
+</div>
+
+<br>
+
+<table align="center">
+<tr>
+<td align="center" width="33%"><h3>One surface</h3>Pebble Shell: the left rail and the screen frame are one frosted piece. Drawers and the menu grow out of it instead of floating on top.</td>
+<td align="center" width="33%"><h3>Everything close</h3>A quarter-circle corner for brightness, volume, mic and toggles, a search-first menu on Super + Space, and drawers for Wi-Fi, sound, power and more.</td>
+<td align="center" width="33%"><h3>Tuned look</h3>Glass and Depth sliders for blur and recessed windows, macOS-style motion, and a theme picker that re-themes everything in one click.</td>
+</tr>
+</table>
+
+<br>
 
 <table>
 <tr>
@@ -17,9 +40,32 @@ Most of it was made by describing what I wanted to Claude Code, having it show m
 </tr>
 </table>
 
-<sub>Themes: Artzen and Arc Blueberry. The screenshots show my own name ("MARY") set as the menu and fastfetch title; a fresh install says OMARCHY until you <a href="#make-it-yours">set yours</a>. The usage drawer's banked-reset button ships for Codex only; the Claude one in the screenshot isn't included.</sub>
+<p align="center"><sub>
+Themes: Artzen and Arc Blueberry. The screenshots show my own name ("MARY") as the menu and fastfetch title;
+a fresh install says OMARCHY until you <a href="#make-it-yours">set yours</a>.
+The usage drawer's banked-reset button ships for Codex only.
+</sub></p>
 
-## What's in it
+Most of it was made by describing what I wanted to Claude Code, having it show me ten or more takes, then iterating on the one I liked.
+
+## What you get
+
+<table>
+<tr>
+<td width="50%" valign="top"><strong>Pebble Shell.</strong><br>The bar is a rail down the left edge that joins the screen frame, blurred as one surface so there's no seam. Workspaces, clock, weather and tray live in it.</td>
+<td width="50%" valign="top"><strong>Control corner.</strong><br>A quarter-circle drawer out of the rail's bottom corner: brightness, volume and mic as arcs, quick toggles, battery and power profile.</td>
+</tr>
+<tr>
+<td width="50%" valign="top"><strong>Search-first menu.</strong><br>Super + Space opens "What do you need?": type to search every Omarchy action, or browse Apps, Style, Setup and the rest. It carries your own name as its title.</td>
+<td width="50%" valign="top"><strong>Studio drawer.</strong><br>Glass (opacity, blur, backdrop), Depth (recessed or raised windows, tuned for light and dark themes), Tricky Tiles motion and display in one place.</td>
+</tr>
+<tr>
+<td width="50%" valign="top"><strong>fastfetch dashboard.</strong><br>Hardware, live telemetry, system, desktop and network cards with your logo, laid out to fit the terminal's width.</td>
+<td width="50%" valign="top"><strong>Usage limits.</strong><br>Claude Code and Codex weekly limits and today's tokens in the bar, read from your own signed-in CLIs.</td>
+</tr>
+</table>
+
+## Everything in it
 
 **Shell and bar**
 
@@ -76,6 +122,23 @@ cd omarchy-dots
 The script lists what it will change and asks once. Everything it replaces is copied to `~/.config/omarchy-dots-backup/<time>/` first. It never touches `hypr/monitors.lua`.
 
 Then log out and back in, or run `hyprctl reload && omarchy restart shell`.
+
+### Installing with an AI agent
+
+Paste this repository's link into your coding agent (Claude Code, Codex and so on) and ask it to install the dots. For the agent:
+
+1. Confirm this is an Omarchy 4 system: `omarchy plugin list` should run. Stop if it doesn't.
+2. Clone the repo and run the installer without the prompt:
+
+   ```bash
+   git clone https://github.com/denonmaryland/omarchy-dots ~/omarchy-dots
+   ~/omarchy-dots/install.sh --yes
+   ```
+
+3. Check that `omarchy plugin list --json` shows `denon.shell` and `hello-lock` enabled, and pass on any "could not add" lines the installer printed.
+4. Tell the user where the backup folder is (the installer prints it) and how to set their name (see "Make it yours").
+
+Don't copy files into `~/.config` by hand or edit `hypr/monitors.lua`. The installer backs up everything it replaces; hand edits skip that.
 
 ### Optional apps
 
