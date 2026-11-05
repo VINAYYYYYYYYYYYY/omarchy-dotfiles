@@ -23,22 +23,154 @@ BarWidget {
     return null
   }
 
-  function workspaceIds() {
-    var ids = [1, 2, 3, 4, 5]
-    var values = Hyprland.workspaces.values
+  // Omarchy 4.5 gives every monitor its own workspaces 1-10, numbered by
+  // Hyprland in a block of ten per monitor (1-10, 11-20, ...; see 4.5's
+  // default/hypr/monitor-workspaces.lua), and records each connector's block
+  // in ~/.local/state/omarchy/monitor-workspaces. While that file lists any
+  // monitor, each bar shows its own monitor's block, labelled 1-10, as the
+  // 4.5 bar does. Without it (Omarchy 4.0.6) the widget keeps showing
+  // workspaces 1-10 and the focused one, exactly as before.
+  readonly property int slots: 10
+  property var blocks: ({})
+  readonly property bool perMonitor: Object.keys(root.blocks).length > 0
 
-    for (var i = 0; i < values.length; i++) {
-      var id = values[i].id
-      if (id > 0 && id <= 10 && ids.indexOf(id) === -1) ids.push(id)
+  readonly property var monitor: {
+    var window = root.QsWindow.window
+    var screen = window ? window.screen : null
+    return screen ? Hyprland.monitorFor(screen) : Hyprland.focusedMonitor
+  }
+  readonly property string monitorName: root.monitor ? root.monitor.name : ""
+
+  function readBlocks(text) {
+    var next = {}
+    var lines = String(text || "").split("\n")
+    for (var i = 0; i < lines.length; i++) {
+      var fields = lines[i].split("\t")
+      var block = parseInt(fields[0], 10)
+      if (fields.length >= 3 && fields[1] !== "" && !isNaN(block)) next[fields[1]] = block
+    }
+    root.blocks = next
+  }
+
+  FileView {
+    id: blocksFile
+    path: (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state") + "/omarchy/monitor-workspaces"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.readBlocks(text())
+    onLoadFailed: root.readBlocks("")
+  }
+
+  function blockOf(id) {
+    return Math.floor((id - 1) / root.slots)
+  }
+
+  function slotOf(id) {
+    return (id - 1) % root.slots + 1
+  }
+
+  function labelFor(id) {
+    if (!(id > 0)) return ""
+    var number = root.perMonitor ? root.slotOf(id) : id
+    return number === 10 ? "0" : String(number)
+  }
+
+  // The workspace this bar marks: the one its monitor shows with per-monitor
+  // workspaces, otherwise the focused one, as before.
+  readonly property int shownId: {
+    if (root.perMonitor) return root.monitor && root.monitor.activeWorkspace ? root.monitor.activeWorkspace.id : -1
+    return Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : -1
+  }
+
+  // Until Hyprland has written this monitor's line, the workspace it shows
+  // is in its own block.
+  readonly property int block: {
+    if (!root.perMonitor) return 0
+    var known = root.blocks[root.monitorName]
+    if (known !== undefined) return known
+    return root.shownId > 0 ? root.blockOf(root.shownId) : 0
+  }
+
+  function workspaceIds() {
+    if (!root.perMonitor) {
+      var ids = [1, 2, 3, 4, 5]
+      var values = Hyprland.workspaces.values
+
+      for (var i = 0; i < values.length; i++) {
+        var id = values[i].id
+        if (id > 0 && id <= 10 && ids.indexOf(id) === -1) ids.push(id)
+      }
+
+      ids.sort(function(left, right) { return left - right })
+      return ids
     }
 
-    ids.sort(function(left, right) { return left - right })
-    return ids
+    // The first five of the monitor's own block and any of the rest that
+    // exist, then guests: workspaces of an unplugged monitor parked here.
+    var base = root.block * root.slots
+    var own = [base + 1, base + 2, base + 3, base + 4, base + 5]
+    var guests = []
+    var all = Hyprland.workspaces.values
+    for (var j = 0; j < all.length; j++) {
+      var wid = all[j].id
+      if (wid <= 0) continue
+      if (root.blockOf(wid) === root.block) {
+        if (own.indexOf(wid) === -1) own.push(wid)
+      } else if (all[j].monitor && all[j].monitor.name === root.monitorName) {
+        guests.push(wid)
+      }
+    }
+    own.sort(function(left, right) { return left - right })
+    guests.sort(function(left, right) { return left - right })
+    return own.concat(guests)
+  }
+
+  function dispatch(expression) {
+    if (root.bar) root.bar.run("hyprctl dispatch " + Util.shellQuote(expression))
   }
 
   function focusWorkspace(id) {
     if (!root.bar) return
-    root.bar.run("hyprctl dispatch " + Util.shellQuote("hl.dsp.focus({ workspace = \"" + id + "\" })"))
+    // o.workspaces is defined by the same 4.5 Hyprland config that writes
+    // the blocks file; it focuses this bar's monitor first.
+    if (root.perMonitor && root.monitorName !== "" && root.blockOf(id) === root.block)
+      root.dispatch("o.workspaces.focus(" + root.slotOf(id) + ", \"" + root.monitorName + "\")")
+    else
+      root.dispatch("hl.dsp.focus({ workspace = \"" + id + "\" })")
+  }
+
+  // Omarchy 4.5's layout commands call `omarchy-shell omarchy.workspaces
+  // refresh`. This widget draws no layout glyph, so a refresh re-reads the
+  // blocks and asks Hyprland for its monitors and workspaces. Those are
+  // shared by every bar, and each bar's FileView watches the blocks file, so
+  // the one instance that owns the IPC target is enough.
+  function refresh() {
+    blocksFile.reload()
+    Hyprland.refreshMonitors()
+    Hyprland.refreshWorkspaces()
+  }
+
+  IpcHandler {
+    target: "omarchy.workspaces"
+
+    function refresh(): void { root.refresh() }
+  }
+
+  // Quickshell credits every workspace switch to the focused monitor and
+  // misses workspaces moved between monitors, so with per-monitor blocks ask
+  // Hyprland again, as the 4.5 bar does. Single-block mode is untouched.
+  Connections {
+    target: Hyprland
+    enabled: root.perMonitor
+    function onRawEvent(event) {
+      var name = event ? String(event.name) : ""
+      var switched = name === "workspacev2" && root.monitor !== null && root.monitor.focused
+      if (switched || name === "moveworkspacev2" || name === "changeworkspaceid") {
+        Hyprland.refreshMonitors()
+        Hyprland.refreshWorkspaces()
+      }
+    }
   }
 
   readonly property real trailingGap: root.vertical ? 0 : Style.spaceReal(1.5)
@@ -48,7 +180,7 @@ BarWidget {
   readonly property bool tideRail: root.vertical && Motion.PanelMotion.tide
   readonly property real trackPad: tideRail ? Style.space(7) : 0
   readonly property var ids: workspaceIds()
-  readonly property int focusedIndex: Hyprland.focusedWorkspace ? ids.indexOf(Hyprland.focusedWorkspace.id) : -1
+  readonly property int focusedIndex: shownId > 0 ? ids.indexOf(shownId) : -1
 
   // Depth plugin link (personal; not part of the released plugin): the focus
   // chip takes the windows' material. Raised = an accent pebble standing on
@@ -228,7 +360,8 @@ BarWidget {
     Text {
       visible: root.tideRail
       anchors.centerIn: parent
-      text: Hyprland.focusedWorkspace ? (Hyprland.focusedWorkspace.id === 10 ? "0" : String(Hyprland.focusedWorkspace.id)) : ""
+      text: root.perMonitor ? root.labelFor(root.shownId)
+        : Hyprland.focusedWorkspace ? (Hyprland.focusedWorkspace.id === 10 ? "0" : String(Hyprland.focusedWorkspace.id)) : ""
       color: root.lightTheme ? "white" : Commons.Color.background
       font.family: root.bar ? root.bar.fontFamily : Style.font.family
       font.pixelSize: Style.space(11)
@@ -347,7 +480,7 @@ BarWidget {
 
         readonly property var workspace: root.workspaceById(modelData)
         readonly property bool occupied: workspace !== null && workspace.toplevels.values.length > 0
-        readonly property bool focused: Hyprland.focusedWorkspace !== null && Hyprland.focusedWorkspace.id === modelData
+        readonly property bool focused: root.shownId > 0 && root.shownId === modelData
 
         implicitWidth: root.vertical ? root.barSize : Style.space(23)
         implicitHeight: root.tideRail ? (focused ? Style.space(46) : Style.space(14)) : root.barSize
@@ -366,7 +499,7 @@ BarWidget {
           id: workspaceButton
           anchors.fill: parent
           bar: root.bar
-          text: workspaceDelegate.modelData === 10 ? "0" : String(workspaceDelegate.modelData)
+          text: root.labelFor(workspaceDelegate.modelData)
           // WidgetButton centers a whole font line box and rounds its anchor
           // position. Digits have no descenders, and unequal side bearings
           // (especially 1 and 4), so that leaves their ink high and off-center.

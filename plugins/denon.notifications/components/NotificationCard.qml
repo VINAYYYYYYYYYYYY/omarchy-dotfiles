@@ -22,6 +22,11 @@ Item {
   property string fontFamily: ""
   property string uiFontFamily: "Adwaita Sans"
   property real entrance: 0
+  // Omarchy 4.5 `--action` button labels, in order (empty on 4.0.6 senders).
+  property var actionLabels: []
+  // The keyboard-mode selection (`notifications keyboard`): accent edge, and
+  // the buttons show their number keys.
+  property bool selected: false
   readonly property bool hovered: hoverTracker.hovered
   readonly property bool lightTheme: Commons.Color.background.hslLightness > 0.55
   readonly property color surfaceColor: Commons.Color.notifications.background
@@ -44,6 +49,7 @@ Item {
 
   signal closeRequested()
   signal cardClicked()
+  signal actionClicked(int index)
 
   function iconSource(icon) {
     var value = String(icon || "")
@@ -66,7 +72,9 @@ Item {
     radius: Style.space(14)
     color: root.surfaceColor
     border.width: 1 / Screen.devicePixelRatio
-    border.color: Qt.rgba(root.edgeColor.r, root.edgeColor.g, root.edgeColor.b, root.edgeColor.a * (root.hovered ? 0.55 : 0.30))
+    border.color: root.selected
+      ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.85)
+      : Qt.rgba(root.edgeColor.r, root.edgeColor.g, root.edgeColor.b, root.edgeColor.a * (root.hovered ? 0.55 : 0.30))
     layer.enabled: true
     layer.effect: MultiEffect {
       shadowEnabled: true
@@ -211,6 +219,74 @@ Item {
         elide: Text.ElideRight
         maximumLineCount: 2
         lineHeight: 1.15
+      }
+
+      // `omarchy-notification-send --action` buttons. Declared after the
+      // card-wide MouseArea, so a press here never also clicks the card.
+      RowLayout {
+        Layout.fillWidth: true
+        Layout.topMargin: Style.space(4)
+        visible: root.actionLabels.length > 0
+        spacing: Style.space(6)
+
+        Repeater {
+          model: root.actionLabels
+
+          Rectangle {
+            id: actionButton
+            required property int index
+            required property var modelData
+            Layout.fillWidth: true
+            Layout.preferredHeight: Style.space(24)
+            radius: Style.space(8)
+            color: Qt.rgba(root.titleColor.r, root.titleColor.g, root.titleColor.b, actionMouse.containsMouse ? 0.16 : 0.08)
+            border.width: 1 / Screen.devicePixelRatio
+            border.color: Qt.rgba(root.titleColor.r, root.titleColor.g, root.titleColor.b, 0.08)
+            Behavior on color { ColorAnimation { duration: 120 } }
+
+            Row {
+              anchors.centerIn: parent
+              spacing: Style.space(5)
+
+              Text {
+                id: actionHint
+                visible: root.selected && actionButton.index < 9
+                text: String(actionButton.index + 1)
+                textFormat: Text.PlainText
+                font.family: root.uiFontFamily
+                font.pixelSize: Style.space(11)
+                font.weight: Font.Bold
+                color: Commons.Color.accent
+              }
+              Text {
+                id: actionLabel
+                // Measured apart from the label, never its own implicitWidth,
+                // which would bind the width to itself.
+                readonly property real room: actionButton.width - Style.space(10)
+                  - (actionHint.visible ? actionHint.implicitWidth + Style.space(5) : 0)
+                width: Math.max(0, Math.min(Math.ceil(actionMetrics.advanceWidth), room))
+                text: String(actionButton.modelData || "")
+                textFormat: Text.PlainText
+                font.family: root.uiFontFamily
+                font.pixelSize: Style.space(11)
+                font.weight: Font.Medium
+                color: actionMouse.containsMouse ? root.titleColor : root.bodyColor
+                elide: Text.ElideRight
+                maximumLineCount: 1
+              }
+            }
+
+            TextMetrics { id: actionMetrics; font: actionLabel.font; text: actionLabel.text }
+
+            MouseArea {
+              id: actionMouse
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.actionClicked(actionButton.index)
+            }
+          }
+        }
       }
     }
   }

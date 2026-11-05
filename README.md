@@ -6,7 +6,7 @@
 A frosted rail that wraps the screen as one surface, a quarter-circle control corner, a search-first menu, recessed windows and a fastfetch dashboard.</p>
 
 <p>
-<a href="https://omarchy.org"><img alt="Omarchy 4" src="https://img.shields.io/badge/omarchy-4-7AA2F7?style=flat-square"></a>
+<a href="https://omarchy.org"><img alt="Omarchy 4.0.6+ and 4.5" src="https://img.shields.io/badge/omarchy-4.0.6%2B%20%7C%204.5-7AA2F7?style=flat-square"></a>
 <img alt="Hyprland 0.56+" src="https://img.shields.io/badge/hyprland-0.56%2B-1E2330?style=flat-square">
 <img alt="24 plugins" src="https://img.shields.io/badge/shell%20plugins-24-1E2330?style=flat-square">
 <img alt="Backs up first" src="https://img.shields.io/badge/installer-backs%20up%20first-1E2330?style=flat-square">
@@ -111,7 +111,7 @@ The screenshots use two themes. Their wallpapers come with them.
 
 ## Install
 
-You need a working Omarchy 4 install.
+You need a working Omarchy 4 install (4.0.6 or newer; 4.5 supported). The installer adds one system package if it is missing, `qt6-5compat`, which the rail draws its edges with; it asks for your password for that.
 
 ```bash
 git clone https://github.com/denonmaryland/omarchy-dotfiles
@@ -171,7 +171,7 @@ Copy the files from `~/.config/omarchy-dotfiles-backup/<time>/` back into your h
 
 ## Notes
 
-- Built and used on one laptop (Zenbook 14, Omarchy 4.0.6, single screen). Multiple monitors are untested.
+- Built and used on one laptop (Zenbook 14, single screen), on Omarchy 4.0.6 and then 4.5.0. Multiple monitors are untested.
 - The Touchpad drawer finds your touchpad automatically. If it picks the wrong one, set `TOUCHPAD_DEVICE` to the name shown by `hyprctl devices`.
 - `denon.agents` replaces Omarchy's Codex usage reader with one that fixes a read timeout. Remove `~/.local/bin/denon-agent-usage-update` to go back to the stock reader.
 

@@ -5,6 +5,18 @@ hl.config({ decoration = { blur = { enabled = true, passes = 2, noise = 0,
   brightness = 1.15,
   vibrancy = 0.08,
 } } })
+o.window(".*", { tag = "+default-opacity" })
+o.window({ tag = "chromium-based-browser" }, { tag = "-default-opacity" })
+o.window({ tag = "firefox-based-browser" }, { tag = "-default-opacity" })
+o.window("(^.+-youtube\\.com__.*$|^.+-app\\.zoom\\.us__wc_home.*$)", { tag = "-default-opacity" })
+o.window({ title = "(Picture.?in.?[Pp]icture)" }, { tag = "-default-opacity" })
+o.window(".*[Rr]esolve.*", { tag = "-default-opacity" })
+o.window({ class = "^Hermes$", title = "^Hermes HUD$" }, { tag = "-default-opacity" })
+o.window("com.libretro.RetroArch", { tag = "-default-opacity" })
+o.window("qemu", { tag = "-default-opacity" })
+o.window("steam.*", { tag = "-default-opacity" })
+o.window("^(zoom|vlc|mpv|org.kde.kdenlive|com.obsproject.Studio|com.github.PintaProject.Pinta|imv|org.gnome.NautilusPreviewer)$", { tag = "-default-opacity" })
+o.window({ class = "^WebcamOverlay-(small|medium|large)$", title = "^WebcamOverlay$" }, { tag = "-default-opacity" })
 o.window({ tag = "default-opacity" }, { opacity = "0.995 override 0.99 override 1.0 override" })
 o.window({ tag = "default-opacity", fullscreen_state_internal = 1 }, { opacity = "0.995 override 0.99 override 0.995 override" })
 o.window({ tag = "default-opacity", fullscreen_state_internal = 1, focus = false }, { opacity = "0.995 override 0.99 override 0.99 override" })

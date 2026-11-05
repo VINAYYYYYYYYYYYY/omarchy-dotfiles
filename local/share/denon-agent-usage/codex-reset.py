@@ -10,6 +10,7 @@ next available credit. Calls Codex's own app-server
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import uuid
@@ -24,7 +25,7 @@ mod = collector.mod
 
 def main():
   credit_id = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
-  codex = mod.find_command("codex")
+  codex = shutil.which("codex")  # find_command was removed in Omarchy 4.5
   if not codex:
     print(json.dumps({"error": "codex not found in PATH"}))
     return 1

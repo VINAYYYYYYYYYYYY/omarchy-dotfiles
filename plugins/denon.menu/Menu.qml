@@ -27,6 +27,9 @@ Item {
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
 
     if (payload.fontFamily) root.fontFamily = payload.fontFamily
+    // A shell that started mid-update may never have read the shipped menu
+    // whole; reading it again here keeps the menu from opening empty.
+    if (root.defaultMenuItems.length === 0) defaultMenuFile.reload()
 
     if (payload.mode === "select" || payload.mode === "input") {
       root.hoverOpened = false
@@ -128,7 +131,9 @@ Item {
   // nothing boxed. Top-level sections get Lucide line icons (icons/); deeper
   // rows keep their glyphs, drawn bare.
   readonly property bool tide: attached
-  readonly property var lineIcons: ({ apps: 1, learn: 1, trigger: 1, style: 1, setup: 1, install: 1, remove: 1, update: 1, about: 1, system: 1, paper: 1 })
+  // id → icon file stem in icons/. Omarchy 4.5 renamed Style to Appearance;
+  // both names draw the same icon.
+  readonly property var lineIcons: ({ apps: "apps", learn: "learn", trigger: "trigger", style: "style", appearance: "style", setup: "setup", install: "install", remove: "remove", update: "update", about: "about", system: "system", paper: "paper" })
   // The theme accent, lifted for legibility as text on a dark surface.
   readonly property color tideAccent: Commons.Color.background.hslLightness < 0.5
     ? Qt.hsla(Commons.Color.accent.hslHue, Commons.Color.accent.hslSaturation, Math.max(Commons.Color.accent.hslLightness, 0.62), 1)
@@ -156,7 +161,7 @@ Item {
   property int dividerHeight: Style.space(17)
   property bool searchDivider: false
   property int layoutSerial: 0
-  property int cardWidth: Math.min(root.dmenuActive ? Style.space(root.dmenuWidth) : ((root.activeMenu === "trigger.capture.screenrecord" || root.activeMenu === "style.font") ? Style.space(520) : Style.space(320)), panel.width - Style.gapsOut * 2)
+  property int cardWidth: Math.min(root.dmenuActive ? Style.space(root.dmenuWidth) : ((root.activeMenu === "trigger.capture.screenrecord" || root.activeMenu === "style.font" || root.activeMenu === "appearance.font" || root.activeMenu === "update.kernel") ? Style.space(520) : Style.space(320)), panel.width - Style.gapsOut * 2)
   property int visibleRowsHeight: root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider)
   property int cardHeight: root.dmenuActive
     ? Math.min(contentMargin * 2 + headerHeight + (mode === "input" ? 0 : contentSpacing + visibleRowsHeight), panel.height - Style.gapsOut * 2)
@@ -292,7 +297,13 @@ Item {
   // on a per-key basis (so the user can tweak label/icon/action without
   // re-declaring the whole row).
   function rebuildItemsFromSources() {
-    var mergedMenu = MenuModel.mergeMenuSources(root.defaultMenuItems, root.userMenuItems)
+    // Extension rows written for `style.*` follow the section to
+    // `appearance.*` on Omarchy 4.5 (and back on 4.0).
+    var userItems = MenuModel.remapRenamedSections(root.defaultMenuItems, root.userMenuItems)
+    var mergedMenu = MenuModel.mergeMenuSources(root.defaultMenuItems, userItems)
+    // Omarchy 4.5's Apps row also carries a dock action; a row this menu can
+    // fill from its own provider stays that submenu.
+    mergedMenu.items = MenuModel.preferProviderSubmenus(mergedMenu.items, root.providerNames())
     root.providerRevision += 1
     root.providersLoaded = ({})
     root.providerQueue = []
@@ -325,8 +336,34 @@ Item {
       script: "current=$(powerprofilesctl get 2>/dev/null); omarchy-powerprofiles-list 2>/dev/null | while read -r p; do [[ -z $p ]] && continue; printf '%s\\t%s\\t%s\\n' \"$p\" \"$p\" \"$current\"; done",
       icon: "\udb81\udc0b",
       actionFor: function(value) { return "omarchy-powerprofiles-set autodetect " + Util.shellQuote(value) }
+    },
+    // Omarchy 4.5 (Update > Kernel). Lists nothing where omarchy-kernel is
+    // absent (4.0), so the submenu can never offer a command that isn't there.
+    "kernels": {
+      script: "command -v omarchy-kernel >/dev/null 2>&1 || exit 0; current=$(omarchy-kernel get 2>/dev/null); omarchy-kernel list 2>/dev/null | while read -r k; do [[ -z $k ]] && continue; printf '%s\\t%s\\t%s\\n' \"$k\" \"$k\" \"$current\"; done",
+      icon: "\uf17c",
+      volatile: true,
+      actionFor: function(value) { return "omarchy-kernel set " + Util.shellQuote(value) }
+    },
+    // Omarchy 4.5 (Setup > Language). Rows carry a fourth field (the English
+    // name) so searching "danish" finds the row labeled with its native name;
+    // mergeProviderRows turns it into a search term. Lists nothing where
+    // omarchy-language is absent (4.0).
+    "languages": {
+      script: "command -v omarchy-language >/dev/null 2>&1 || exit 0; current=$(omarchy-language 2>/dev/null); omarchy-language list 2>/dev/null | while IFS=$'\\t' read -r name code english; do [[ -z $code ]] && continue; printf '%s\\t%s\\t%s\\t%s\\n' \"$name\" \"$code\" \"$current\" \"$english\"; done",
+      icon: "\uf1ab",
+      volatile: true,
+      actionFor: function(value) { return "omarchy-language " + Util.shellQuote(value) }
     }
   })
+
+  // Every provider name this menu can fill: the bash ones above plus the
+  // QML-native apps provider.
+  function providerNames() {
+    var names = ({ apps: true })
+    for (var key in root.providers) names[key] = true
+    return names
+  }
 
   function slugify(value) {
     return MenuModel.slugify(value)
@@ -363,8 +400,10 @@ Item {
         action: "",
         provider: "",
         aliases: aliases,
+        searchTerms: [],
         when: "",
         checked: "",
+        disabled: "",
         order: 0
       })
     }
@@ -428,8 +467,10 @@ Item {
         action: spec.actionFor(value),
         provider: "",
         aliases: [],
+        searchTerms: parts[3] ? [parts[3]] : [],
         when: "",
         checked: "",
+        disabled: "",
         order: 0
       })
     }
@@ -518,9 +559,10 @@ Item {
     return MenuModel.isVisible(root.items, root.itemOrder, root.whenResults, entry)
   }
 
-  // Label with the ✓ marker baked in when `checked:` evaluated truthy.
+  // Label with the ✓ marker baked in when `checked:` or `disabled:`
+  // evaluated truthy.
   function labelFor(entry) {
-    return MenuModel.labelFor(entry, root.checkedResults)
+    return MenuModel.labelFor(entry, root.checkedResults, root.disabledResults)
   }
 
   function searchableToken(value) {
@@ -543,8 +585,16 @@ Item {
     return MenuModel.descriptionTextMatches(query, text)
   }
 
+  // Rows whose `disabled:` evaluated truthy stay listed but dimmed, and the
+  // cursor steps over them.
+  function isDisabled(entry) {
+    return MenuModel.isDisabled(root.disabledResults, entry)
+  }
+
+  // A disabled row earns its place in the submenu it belongs to; search is a
+  // list of what you can do, so it leaves them out.
   function matchesQuery(entry, query) {
-    return MenuModel.matchesQuery(entry, query, root.isVisible(entry))
+    return MenuModel.matchesQuery(entry, query, root.isVisible(entry) && !root.isDisabled(entry))
   }
 
   function searchScore(entry, query) {
@@ -552,7 +602,38 @@ Item {
   }
 
   function displayRow(entry, detail, score, section) {
-    return MenuModel.displayRow(root.items, root.itemOrder, root.checkedResults, entry, detail, score, section)
+    return MenuModel.displayRow(root.items, root.itemOrder, root.checkedResults, root.disabledResults, entry, detail, score, section)
+  }
+
+  function rowSelectable(index) {
+    if (index < 0 || index >= displayModel.count) return false
+    return !displayModel.get(index).disabled
+  }
+
+  // First selectable row at or past `from`, continuing in the direction of
+  // travel and wrapping. -1 when every row is disabled.
+  function nextSelectable(from, direction) {
+    var count = displayModel.count
+    if (count === 0) return -1
+
+    var step = direction < 0 ? -1 : 1
+    var index = ((from % count) + count) % count
+    for (var i = 0; i < count; i++) {
+      if (root.rowSelectable(index)) return index
+      index = (index + step + count) % count
+    }
+
+    return -1
+  }
+
+  // Park the cursor on a selectable row after the rows underneath it
+  // changed. A menu with nothing selectable in it shows no cursor at all.
+  function settleCursor() {
+    if (displayModel.count === 0) { root.selectedIndex = 0; return }
+    var from = Math.max(0, Math.min(root.selectedIndex, displayModel.count - 1))
+    var target = root.nextSelectable(from, 1)
+    root.selectedIndex = target >= 0 ? target : 0
+    if (target < 0) root.cursorActive = false
   }
 
   function rebuildDmenuDisplay() {
@@ -578,6 +659,7 @@ Item {
           && detail.toLowerCase().indexOf(query) < 0) continue
       displayModel.append({
         itemId: "dmenu." + i,
+        disabled: false,
         kind: "dmenu",
         icon: icon,
         iconFont: "",
@@ -678,9 +760,7 @@ Item {
     for (var k = 0; k < rows.length; k++) displayModel.append(rows[k])
     layoutSerial += 1
 
-    if (displayModel.count === 0) selectedIndex = 0
-    else if (selectedIndex >= displayModel.count) selectedIndex = displayModel.count - 1
-    else if (selectedIndex < 0) selectedIndex = 0
+    root.settleCursor()
 
     Qt.callLater(function() {
       if (displayModel.count > 0) root.revealCursor()
@@ -713,12 +793,13 @@ Item {
     if (displayModel.count === 0) return
 
     root.disarmPointer()
-    if (!cursorActive) {
-      cursorActive = true
-      selectedIndex = delta < 0 ? displayModel.count - 1 : 0
-    } else {
-      selectedIndex = (selectedIndex + delta + displayModel.count) % displayModel.count
-    }
+    var from = cursorActive ? selectedIndex + delta : (delta < 0 ? displayModel.count - 1 : 0)
+    // Disabled rows only exist in menu mode; dmenu rows are always selectable.
+    var target = root.nextSelectable(from, delta)
+    if (target < 0) return
+
+    cursorActive = true
+    selectedIndex = target
     revealCursor()
   }
 
@@ -775,7 +856,7 @@ Item {
       return
     }
 
-    if (index < 0 || index >= displayModel.count) return
+    if (!root.rowSelectable(index)) return
 
     var row = displayModel.get(index)
     if (row.kind === "menu" || row.kind === "link") {
@@ -922,6 +1003,7 @@ Item {
 
   function selectFromPointer(index, item, mouse) {
     if (!pointerGate.moved(item, mouse)) return
+    if (!root.rowSelectable(index)) return
     root.cursorActive = true
     root.selectedIndex = index
   }
@@ -972,7 +1054,7 @@ Item {
     path: root.defaultMenuPath
     watchChanges: true
     printErrors: false
-    onLoaded: { root.defaultMenuItems = root.parseMenuJsonc(text()); root.rebuildItemsFromSources() }
+    onLoaded: { root.defaultMenuItems = MenuModel.keepMenuRows(root.defaultMenuItems, text(), true); root.rebuildItemsFromSources() }
     onFileChanged: reload()
   }
 
@@ -981,7 +1063,7 @@ Item {
     path: root.userMenuPath
     watchChanges: true
     printErrors: false
-    onLoaded: { root.userMenuItems = root.parseMenuJsonc(text()); root.rebuildItemsFromSources() }
+    onLoaded: { root.userMenuItems = MenuModel.keepMenuRows(root.userMenuItems, text(), false); root.rebuildItemsFromSources() }
     onLoadFailed: { root.userMenuItems = []; root.rebuildItemsFromSources() }
     onFileChanged: reload()
   }
@@ -995,6 +1077,7 @@ Item {
 
   property var whenResults: ({})       // id → true|false (allow visibility)
   property var checkedResults: ({})    // id → true|false (show ✓)
+  property var disabledResults: ({})   // id → true|false (dim, skip cursor)
   property bool guardsPending: false
 
   function evaluateGuards() {
@@ -1014,6 +1097,7 @@ Item {
     if (!script) {
       root.whenResults = ({})
       root.checkedResults = ({})
+      root.disabledResults = ({})
       return
     }
     guardProc.collected = ""
@@ -1039,6 +1123,7 @@ Item {
 
       var nextWhen = ({})
       var nextChecked = ({})
+      var nextDisabled = ({})
       var lines = guardProc.collected.split("\n")
       for (var i = 0; i < lines.length; i++) {
         var line = lines[i].trim()
@@ -1053,9 +1138,11 @@ Item {
         var tag = rest.substring(tagAt + 1)
         if (tag === "w") nextWhen[id] = value
         else if (tag === "c") nextChecked[id] = value
+        else if (tag === "d") nextDisabled[id] = value
       }
       root.whenResults = nextWhen
       root.checkedResults = nextChecked
+      root.disabledResults = nextDisabled
       if (root.opened) root.rebuildDisplay()
       // Run the evaluation that had to stand aside. Deferred by a turn so the
       // process is settled before its command is set again.
@@ -1261,7 +1348,10 @@ Item {
               if (root.mode === "input") root.applyDmenuSelection(root.filterText)
               else if (displayModel.count > 0) root.activateIndex(root.cursorActive ? root.selectedIndex : 0)
             } else if (root.cursorActive) root.activateIndex(root.selectedIndex)
-            else if (displayModel.count > 0) root.cursorActive = true
+            else if (displayModel.count > 0) {
+              var parked = root.nextSelectable(root.selectedIndex, 1)
+              if (parked >= 0) { root.selectedIndex = parked; root.cursorActive = true }
+            }
             event.accepted = true
           } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127 && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) {
             root.setFilter(root.filterText + event.text)
@@ -1431,6 +1521,7 @@ Item {
               required property string path
               required property string action
               required property int childCount
+              required property bool disabled
 
               readonly property bool hasCursor: root.cursorActive && row.index === root.selectedIndex
               readonly property bool isApp: row.kind === "app"
@@ -1438,7 +1529,10 @@ Item {
 
               width: ListView.view.width
               height: root.rowHeightForDetail(row.detail)
-              readonly property bool lineIcon: root.tide && !row.isApp && root.lineIcons[row.itemId] === 1
+              // Faded: the row is here to say the software is already
+              // installed, not to be picked.
+              opacity: row.disabled ? 0.4 : 1
+              readonly property bool lineIcon: root.tide && !row.isApp && !!root.lineIcons[row.itemId]
               readonly property real iconLeft: root.tide ? Style.space(12) : root.rowReservedBorderLeft + Style.space(6)
 
               radius: Style.space(10)
@@ -1493,7 +1587,7 @@ Item {
               Image {
                 id: lineIconImage
                 visible: false
-                source: row.lineIcon ? Qt.resolvedUrl("icons/" + row.itemId + ".svg") : ""
+                source: row.lineIcon ? Qt.resolvedUrl("icons/" + root.lineIcons[row.itemId] + ".svg") : ""
                 width: Style.space(18)
                 height: width
                 sourceSize.width: width * Screen.devicePixelRatio
@@ -1599,7 +1693,7 @@ Item {
                 id: mouseArea
                 anchors.fill: parent
                 hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
+                cursorShape: row.disabled ? Qt.ArrowCursor : Qt.PointingHandCursor
                 onEntered: root.selectFromPointer(row.index, row, {
                   x: mouseArea.mouseX,
                   y: mouseArea.mouseY
@@ -1608,6 +1702,7 @@ Item {
                   root.selectFromPointer(row.index, row, mouse)
                 }
                 onClicked: {
+                  if (row.disabled) return
                   root.cursorActive = true
                   root.selectedIndex = row.index
                   root.activateIndex(row.index, true)

@@ -33,12 +33,27 @@ function normalizeItem(id, raw) {
     action: value.action || "",
     provider: value.provider || "",
     aliases: aliases,
+    // Search-only terms (Omarchy 4.5): matched by nameSearchText, never by
+    // resolveRoute. The languages provider puts each English name here.
+    searchTerms: normalizeAliases(value.searchTerms),
     when: value.when || "",
-    checked: value.checked || ""
+    checked: value.checked || "",
+    // Omarchy 4.5: shell condition; when it succeeds the row stays listed but
+    // goes dim, takes a ✓ and can no longer be selected.
+    disabled: value.disabled || ""
   }
 }
 
 function parseMenuJsonc(raw) {
+  return readMenuJsonc(raw) || []
+}
+
+// Like parseMenuJsonc, but null when the text is not a menu at all: what a
+// reader sees of a file caught mid-write by an update, a checkout or an
+// editor's save. A file of nothing but comments is still an empty menu.
+// (Ported from Omarchy 4.5; the 4.0 -> 4.5 update rewrites the shipped menu
+// while this plugin is running.)
+function readMenuJsonc(raw) {
   var stripped = stripJsonc(raw)
   if (!stripped.trim()) return []
 
@@ -46,9 +61,9 @@ function parseMenuJsonc(raw) {
   try {
     parsed = JSON.parse(stripped)
   } catch (e) {
-    return []
+    return null
   }
-  if (typeof parsed !== "object" || parsed === null) return []
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null
 
   var source = (parsed.items && typeof parsed.items === "object" && !Array.isArray(parsed.items))
     ? parsed.items
@@ -60,6 +75,111 @@ function parseMenuJsonc(raw) {
     out.push(normalizeItem(id, entry))
   }
   return out
+}
+
+// The rows a watched menu file leaves after a read. A read caught mid-write
+// keeps the previous rows until a later read finds the file whole. The
+// shipped menu is never legitimately empty, so for it (required) an empty
+// read is mid-write too.
+function keepMenuRows(previous, raw, required) {
+  var items = readMenuJsonc(raw)
+  if (!items || (required && items.length === 0)) return previous
+  return items
+}
+
+// Top-level sections Omarchy has renamed, as [old, new]. Omarchy 4.5 renamed
+// Style to Appearance, so an extension written for one release would hang
+// its rows off a section the other release no longer has.
+var SECTION_RENAMES = [
+  ["style", "appearance"]
+]
+
+function renamedId(id, from, to) {
+  var value = String(id || "")
+  if (value === from) return to
+  if (value.indexOf(from + ".") === 0) return to + value.substring(from.length)
+  return value
+}
+
+// Moves extension rows onto whichever name of a renamed section the shipped
+// menu actually has: `style.*` becomes `appearance.*` on a base with
+// `appearance` and no `style`, and the other way round on 4.0. A row the
+// extension also declares under the target name is left to that explicit
+// declaration rather than duplicated. Returns fresh rows; never writes into
+// the arrays it is handed.
+function remapRenamedSections(defaultItems, userItems) {
+  var base = ({})
+  var defaults = Array.isArray(defaultItems) ? defaultItems : []
+  for (var i = 0; i < defaults.length; i++) {
+    if (defaults[i] && defaults[i].id) base[defaults[i].id] = true
+  }
+
+  var moves = []
+  for (var r = 0; r < SECTION_RENAMES.length; r++) {
+    var older = SECTION_RENAMES[r][0]
+    var newer = SECTION_RENAMES[r][1]
+    if (base[newer] && !base[older]) moves.push([older, newer])
+    else if (base[older] && !base[newer]) moves.push([newer, older])
+  }
+
+  var rows = Array.isArray(userItems) ? userItems : []
+  if (moves.length === 0) return rows
+
+  var declared = ({})
+  for (var d = 0; d < rows.length; d++) {
+    if (rows[d] && rows[d].id) declared[rows[d].id] = true
+  }
+
+  var out = []
+  for (var j = 0; j < rows.length; j++) {
+    var entry = rows[j]
+    if (!entry || !entry.id) continue
+    var id = entry.id
+    var parent = entry.parent
+    var target = entry.target
+    for (var m = 0; m < moves.length; m++) {
+      id = renamedId(id, moves[m][0], moves[m][1])
+      if (parent) parent = renamedId(parent, moves[m][0], moves[m][1])
+      if (target) target = renamedId(target, moves[m][0], moves[m][1])
+    }
+    if (id === entry.id && parent === entry.parent && target === entry.target) {
+      out.push(entry)
+      continue
+    }
+    if (id !== entry.id && declared[id]) continue
+    var next = {}
+    for (var k in entry) next[k] = entry[k]
+    next.id = id
+    next.parent = parent
+    next.target = target
+    out.push(next)
+  }
+  return out
+}
+
+// Omarchy 4.5 gives `apps` both `provider: "apps"` and an action that opens
+// its new dock grid, which would make the row an action here. A row whose
+// provider this menu implements stays the submenu that provider fills, so
+// Apps keeps opening this menu's own app list. `providerNames` maps each
+// implemented provider name to true. Returns a fresh items map.
+function preferProviderSubmenus(items, providerNames) {
+  var source = items || ({})
+  var names = providerNames || ({})
+  var next = ({})
+  for (var id in source) {
+    var entry = source[id]
+    if (entry && entry.kind === "action" && entry.provider && names[entry.provider] === true) {
+      var copy = {}
+      for (var k in entry) copy[k] = entry[k]
+      copy.kind = "menu"
+      copy.shadowedAction = copy.action
+      copy.action = ""
+      next[id] = copy
+    } else {
+      next[id] = entry
+    }
+  }
+  return next
 }
 
 function mergeMenuSources(defaultItems, userItems) {
@@ -83,7 +203,7 @@ function mergeMenuSources(defaultItems, userItems) {
   }
 
   if (!nextItems.root) {
-    nextItems.root = { id: "root", parent: "", kind: "menu", icon: "", iconFont: "", label: "Go", title: "", target: "", description: "", aliases: [], when: "", checked: "", action: "", provider: "" }
+    nextItems.root = { id: "root", parent: "", kind: "menu", icon: "", iconFont: "", label: "Go", title: "", target: "", description: "", aliases: [], searchTerms: [], when: "", checked: "", disabled: "", action: "", provider: "" }
     nextOrder.unshift("root")
   }
   for (var k3 = 0; k3 < nextOrder.length; k3++) nextItems[nextOrder[k3]].order = k3
@@ -270,10 +390,20 @@ function isVisible(items, itemOrder, whenResults, entry, depth) {
   return false
 }
 
-function labelFor(entry, checkedResults) {
+// A `disabled:` row (Omarchy 4.5) stays listed but goes dim and
+// unselectable. The Install submenus use it so software already on the
+// machine reads as installed rather than disappearing from the list.
+function isDisabled(disabledResults, entry) {
+  if (!entry || !entry.disabled) return false
+  return !!(disabledResults && disabledResults[entry.id])
+}
+
+// A disabled row is software you already have, which is the same thing the ✓
+// says everywhere else in the menu, so it earns the same marker.
+function labelFor(entry, checkedResults, disabledResults) {
   if (!entry) return ""
-  if (entry.checked && checkedResults && checkedResults[entry.id]) return entry.label + " ✓"
-  return entry.label
+  var marked = (entry.checked && checkedResults && checkedResults[entry.id]) || isDisabled(disabledResults, entry)
+  return marked ? entry.label + " ✓" : entry.label
 }
 
 function searchableToken(value) {
@@ -288,7 +418,7 @@ function leafIdFor(id) {
 function nameSearchText(entry) {
   if (!entry) return ""
   var aliases = []
-  var values = Array.isArray(entry.aliases) ? entry.aliases : []
+  var values = (Array.isArray(entry.aliases) ? entry.aliases : []).concat(Array.isArray(entry.searchTerms) ? entry.searchTerms : [])
   for (var i = 0; i < values.length; i++) aliases.push(searchableToken(values[i]))
   return [entry.label, searchableToken(leafIdFor(entry.id)), aliases.join(" ")].join(" ").toLowerCase()
 }
@@ -351,16 +481,17 @@ function searchScore(items, entry, query) {
   return score * 1000 + depthFor(items, entry.id) * 25 + entry.order
 }
 
-function displayRow(items, itemOrder, checkedResults, entry, detail, score, section) {
+function displayRow(items, itemOrder, checkedResults, disabledResults, entry, detail, score, section) {
   var target = entry.kind === "link" ? entry.target : entry.id
   return {
     itemId: entry.id,
+    disabled: isDisabled(disabledResults, entry),
     kind: entry.kind,
     icon: entry.icon,
     iconFont: entry.iconFont || "",
     appIcon: entry.appIcon || "",
     appId: entry.appId || "",
-    label: labelFor(entry, checkedResults),
+    label: labelFor(entry, checkedResults, disabledResults),
     target: target,
     detail: detail || "",
     path: pathFor(items, entry.id),
@@ -459,8 +590,8 @@ function guardLine(id, tag, expression) {
     + id + ":" + tag + ":1; else echo " + id + ":" + tag + ":0; fi\n"
 }
 
-// One bash script for every `when:` and `checked:` in the menu, reporting
-// `<id>:<w|c>:<0|1>` per line. Speed is the whole point: the menu opens on
+// One bash script for every `when:`, `checked:` and `disabled:` in the menu,
+// reporting `<id>:<w|c|d>:<0|1>` per line. Speed is the whole point: the menu opens on
 // the last evaluation's answers, so however long this takes is how long a row
 // can contradict the state it describes.
 function guardScript(items) {
@@ -472,6 +603,7 @@ function guardScript(items) {
     if (!entry) continue
     if (entry.when) guards += guardLine(ids[i], "w", entry.when)
     if (entry.checked) guards += guardLine(ids[i], "c", entry.checked)
+    if (entry.disabled) guards += guardLine(ids[i], "d", entry.disabled)
   }
 
   return guards ? guardPrelude(guards) + guards : ""
@@ -485,6 +617,10 @@ if (typeof module !== "undefined") {
     normalizeAliases: normalizeAliases,
     normalizeItem: normalizeItem,
     parseMenuJsonc: parseMenuJsonc,
+    readMenuJsonc: readMenuJsonc,
+    keepMenuRows: keepMenuRows,
+    remapRenamedSections: remapRenamedSections,
+    preferProviderSubmenus: preferProviderSubmenus,
     mergeMenuSources: mergeMenuSources,
     mergeAppRows: mergeAppRows,
     swapProviderRows: swapProviderRows,
@@ -497,6 +633,7 @@ if (typeof module !== "undefined") {
     isDescendantOf: isDescendantOf,
     childCount: childCount,
     isVisible: isVisible,
+    isDisabled: isDisabled,
     labelFor: labelFor,
     searchableToken: searchableToken,
     leafIdFor: leafIdFor,

@@ -59,6 +59,12 @@ Item {
   property bool requestedTransparent: false
   property bool useTransparentForeground: false
   property bool transparent: false
+  // Omarchy 4.5's bar.background: "opaque" (the frosted Pebble default),
+  // "glassy" or "none". Glassy thins the rail to the plain frost tint; the
+  // blur behind it is the denon-frosted rules in looknfeel.lua, which the
+  // rail never toggles. A transparent rail wins over it.
+  property string backgroundLook: "opaque"
+  property bool glassy: false
   property bool centerSectionHovered: false
   // One bar surface exists per monitor and each reports into this count, so a
   // pointer crossing from one monitor's bar to another's stays counted however
@@ -668,7 +674,9 @@ Item {
   property int hyprGapsOut: 16
   readonly property int innerRadius: hyprRounding + hyprGapsOut
   readonly property int crossSize: shellMode ? railWidth : barSize
-  readonly property color shellSurface: transparent ? "transparent" : pebble ? pebbleBackground : recessedBackground
+  // Glassy (4.5 background) drops to the plain frost tint, which stays above
+  // the frosted rules' ignore_alpha (0.4) so the rail keeps its blur.
+  readonly property color shellSurface: transparent ? "transparent" : glassy ? frostedBackground : pebble ? pebbleBackground : recessedBackground
 
   Process {
     id: hyprLookProbe
@@ -697,13 +705,22 @@ Item {
 
   // Apply tray-pinning on top of the shared layout normalization so the
   // bar host and scriptable config helpers can't drift on entry shape.
+  //
+  // Omarchy 4.5 adds centerBegin, centerEnd and tray sections (new widgets
+  // land in centerEnd). The rail folds them into its three regions (see
+  // BarModel.placeTraySection). They are normalized here rather than read off
+  // Util.normalizeLayout, which only returns left/center/right on 4.0.6; a
+  // layout without them renders exactly as before.
   function normalizeLayout(layout) {
-    var normalized = Util.normalizeLayout(Util.isPlainObject(layout) ? layout : fallbackBarConfig.layout)
-    return {
+    var source = Util.isPlainObject(layout) ? layout : fallbackBarConfig.layout
+    var normalized = Util.normalizeLayout(source)
+    function section(key) { return Util.normalizeLayoutSection(source[key]) }
+    var center = section("centerBegin").concat(normalized.center, section("centerEnd"))
+    return BarModel.placeTraySection({
       left:   pinTrayToInner(normalized.left,   "left"),
-      center: pinTrayToInner(normalized.center, "center"),
+      center: pinTrayToInner(center,            "center"),
       right:  pinTrayToInner(normalized.right,  "right")
-    }
+    }, section("tray"))
   }
 
   // The tray drawer reveals inward (away from the bar edge). Place it at the
@@ -718,7 +735,13 @@ Item {
     var config = Util.isPlainObject(barConfig) ? barConfig : fallbackBarConfig
 
     position = normalizePosition(config.position)
-    setRequestedTransparency(config.transparent === true)
+    // opaque, glassy or none (Omarchy 4.5's bar.background); a 4.0.6 config
+    // says transparent instead. As in the 4.5 bar, a rail going clear keeps
+    // its last look until its text color is ready, then clear wins.
+    var look = BarModel.backgroundLook(config)
+    backgroundLook = look
+    setRequestedTransparency(look === "none")
+    if (look !== "none") glassy = look === "glassy"
     centerAnchor = Util.canonicalWidgetId(config.centerAnchor || "")
 
     // layoutEntries feeds plain JS arrays to the module Repeaters, and QML
@@ -991,10 +1014,37 @@ Item {
     if (root.shell && typeof root.shell.mutateShellConfig === "function") {
       root.shell.mutateShellConfig(function(config) {
         if (!Util.isPlainObject(config.bar)) config.bar = {}
-        config.bar.transparent = nextTransparent
+        // A 4.5 config says background, which outranks transparent.
+        if (typeof config.bar.background === "string" && config.bar.background !== "") {
+          config.bar.background = nextTransparent ? "none" : "opaque"
+          delete config.bar.transparent
+        } else {
+          config.bar.transparent = nextTransparent
+        }
       })
     } else {
       root.setRequestedTransparency(nextTransparent)
+    }
+  }
+
+  // Omarchy 4.5's shell calls this for its bar-transparency toggle: clear,
+  // then glassy, then opaque, and around, written the way
+  // `omarchy-bar background` writes it. Edited in place rather than through
+  // omarchy-bar, whose glassy step installs Omarchy's bar-glassy Hyprland
+  // toggle (it resets the global blur settings); the rail's own frosted blur
+  // rules already cover it.
+  function cycleBackground() {
+    var next = BarModel.nextBackgroundLook(root.backgroundLook)
+    if (root.shell && typeof root.shell.mutateShellConfig === "function") {
+      root.shell.mutateShellConfig(function(config) {
+        if (!Util.isPlainObject(config.bar)) config.bar = {}
+        config.bar.background = next
+        delete config.bar.transparent
+      })
+    } else {
+      root.backgroundLook = next
+      root.setRequestedTransparency(next === "none")
+      if (next !== "none") root.glassy = next === "glassy"
     }
   }
 
@@ -1014,24 +1064,32 @@ Item {
     return -1
   }
 
+  // Regions are the rail's three; on a 4.5 layout an entry drawn in one may
+  // live in centerBegin, centerEnd or tray (BarModel.locateRawEntry), and
+  // stays in whichever raw section it is moved into.
   function moveModuleInConfig(config, fromRegion, fromName, toRegion, beforeName) {
-    var fromEntries = rawLayoutSection(config, fromRegion)
-    var toEntries = rawLayoutSection(config, toRegion)
-    var fromIndex = rawEntryIndex(fromEntries, fromName)
-    if (fromIndex < 0) return false
+    rawLayoutSection(config, fromRegion)
+    rawLayoutSection(config, toRegion)
+    var layout = config.bar.layout
+    var from = BarModel.locateRawEntry(layout, fromRegion, fromName)
+    if (!from) return false
+    var before = beforeName ? BarModel.locateRawEntry(layout, toRegion, beforeName) : null
 
-    var toIndex = beforeName ? rawEntryIndex(toEntries, beforeName) : toEntries.length
-    if (toIndex < 0) toIndex = toEntries.length
+    var fromEntries = layout[from.section]
+    var toEntries = rawLayoutSection(config, before ? before.section : BarModel.rawAppendSection(layout, toRegion))
+    var sameSection = fromEntries === toEntries
+    var fromIndex = from.index
+    var toIndex = before ? before.index : toEntries.length
 
-    if (fromRegion === toRegion && fromIndex === toIndex) return false
+    if (sameSection && fromIndex === toIndex) return false
 
     var movedEntry = fromEntries[fromIndex]
     fromEntries.splice(fromIndex, 1)
 
-    if (fromRegion === toRegion && fromIndex < toIndex) toIndex -= 1
+    if (sameSection && fromIndex < toIndex) toIndex -= 1
     if (toIndex < 0) toIndex = 0
     if (toIndex > toEntries.length) toIndex = toEntries.length
-    if (fromRegion === toRegion && fromIndex === toIndex) {
+    if (sameSection && fromIndex === toIndex) {
       fromEntries.splice(fromIndex, 0, movedEntry)
       return false
     }
@@ -1430,7 +1488,7 @@ Item {
     // softer rounded-rectangle cut. The shape morphs on a spring.
     radius: raised ? height / 2 : Math.min(11, height / 2)
     Behavior on radius { SpringAnimation { spring: 3; damping: 0.3; epsilon: 0.05 } }
-    color: root.transparent ? "transparent" : root.pebble ? root.pebbleBackground : root.recessedBackground
+    color: root.shellSurface
     antialiasing: true
     Behavior on color { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
 

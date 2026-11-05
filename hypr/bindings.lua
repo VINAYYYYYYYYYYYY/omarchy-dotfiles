@@ -33,6 +33,8 @@ hl.unbind("SUPER + F")
 hl.unbind("SUPER + ALT + F")
 o.bind("SUPER + F", "Toggle full-width window", hl.dsp.window.fullscreen({ mode = "maximized", layout_aware = true }))
 o.bind("SUPER + ALT + F", "Toggle fullscreen", hl.dsp.window.fullscreen({ mode = "fullscreen", layout_aware = true }))
+-- Omarchy 4.5 binds this to "fullscreen desktop"; keep ours.
+hl.unbind("SUPER + CTRL + ALT + F")
 o.bind("SUPER + CTRL + ALT + F", "Toggle all windows full width", os.getenv("HOME") .. "/.local/bin/hypr-all-full-width")
 
 -- Native window swaps exchange column widths and can break maximized restore

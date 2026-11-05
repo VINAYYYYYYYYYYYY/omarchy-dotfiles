@@ -7,7 +7,7 @@ the account/read reply in the same chunk as its notifications, the reply sits in
 Python's buffer while select() sees an empty pipe, so the call times out and the
 panel shows "account/read". This wrapper reuses the upstream module unchanged
 and only swaps rpc_request for one that reads the raw fd and keeps its own line
-buffer. Remove it once Omarchy ships a fix.
+buffer on releases before 4.5, which ships its own fix.
 
 It also adds `resetCredits` {available, credits[]} to the record: the banked
 "Full reset" credits that the same account/rateLimits/read reply carries.
@@ -21,6 +21,8 @@ import sys
 import time
 from importlib.machinery import SourceFileLoader
 
+# Omarchy 4.5 collectors read OMARCHY_PATH directly.
+os.environ.setdefault("OMARCHY_PATH", "/usr/share/omarchy")
 UPSTREAM = os.path.join(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy"), "bin/omarchy-agent-usage-codex")
 spec = importlib.util.spec_from_loader("omarchy_codex_usage", SourceFileLoader("omarchy_codex_usage", UPSTREAM))
 mod = importlib.util.module_from_spec(spec)
@@ -29,7 +31,7 @@ spec.loader.exec_module(mod)
 _buffers = {}
 
 
-def rpc_request(proc, request_id, method, params=None, timeout=8):
+def _fixed_rpc_request(proc, request_id, method, params=None, timeout=8):
   payload = {"id": request_id, "method": method, "params": params or {}}
   proc.stdin.write(json.dumps(payload) + "\n")
   proc.stdin.flush()
@@ -59,6 +61,10 @@ def rpc_request(proc, request_id, method, params=None, timeout=8):
   _buffers[id(proc)] = buf
   raise TimeoutError(method)
 
+
+# Omarchy 4.5 ships its own raw-fd reader (with rpc_send) that also reports an
+# exited app-server properly; only replace the reader on older releases.
+rpc_request = mod.rpc_request if hasattr(mod, "rpc_send") else _fixed_rpc_request
 
 _last_results = {}
 
@@ -91,12 +97,16 @@ def reset_credits_summary(result):
 _upstream_fetch = mod.fetch_codex_rpc
 
 
-def fetch_codex_rpc():
+def fetch_codex_rpc(*args, **kwargs):
+  # Omarchy 4.5 passes (home, primary); 4.0.x passes nothing.
   _last_results.clear()
-  result = _upstream_fetch()
+  result = _upstream_fetch(*args, **kwargs)
   summary = reset_credits_summary(_last_results.get("account/rateLimits/read") or {})
   if summary is not None:
-    result["resetCredits"] = summary
+    # Keep upstream's fields (4.5 adds nextExpiresAt) and add the credit list.
+    merged = dict(result.get("resetCredits") or {})
+    merged.update(summary)
+    result["resetCredits"] = merged
   return result
 
 

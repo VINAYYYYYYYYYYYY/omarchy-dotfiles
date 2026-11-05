@@ -176,6 +176,71 @@ function parseExecArgv(value) {
   return parsed
 }
 
+// Omarchy 4.5's `omarchy-notification-send --action <label> <program> ...`
+// sends the buttons as the `omarchy-actions` hint: a JSON array of up to three
+// { label, argv } objects (it also sets omarchy-exec-argv to the first one, so
+// a plain click keeps working). Older senders never set it, and 4.0.6 has no
+// --action, so on 4.0.6 this is always "" and the card draws no buttons.
+// Same fail-closed rules as parseExecArgv: one malformed entry drops them all.
+var MAX_EXEC_ACTIONS = 3
+var MAX_ACTION_LABEL = 256
+
+function parseExecActions(value) {
+  var text = String(value || "")
+  if (!text || text.length > 32768) return null
+
+  var parsed
+  try {
+    parsed = JSON.parse(text)
+  } catch (e) {
+    return null
+  }
+
+  if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > MAX_EXEC_ACTIONS) return null
+  var out = []
+  for (var i = 0; i < parsed.length; i++) {
+    var entry = parsed[i]
+    if (!entry || typeof entry !== "object" || typeof entry.label !== "string") return null
+    var label = entry.label.slice(0, MAX_ACTION_LABEL)
+    var argv = parseExecArgv(Array.isArray(entry.argv) ? JSON.stringify(entry.argv) : entry.argv)
+    if (!label.trim() || !argv) return null
+    out.push({ label: label, argv: argv })
+  }
+  return out
+}
+
+// The hint, normalized: re-serialized when valid, "" otherwise, so a bad value
+// is never persisted or carried in the model.
+function execActionsFromHints(hints) {
+  var actions = parseExecActions(stringHint(hints, "omarchy-actions"))
+  return actions ? JSON.stringify(actions) : ""
+}
+
+// The button labels a card draws, in hint order.
+function execActionLabels(value) {
+  var actions = parseExecActions(value) || []
+  var out = []
+  for (var i = 0; i < actions.length; i++) out.push(actions[i].label)
+  return out
+}
+
+// quiet.json under ~/.local/state/omarchy/notifications/: where Omarchy 4.5
+// keeps Do Not Disturb ({"dnd": true, ...}); migration 1792648436 moves a 4.0
+// notifications.json `dnd: true` there and deletes notifications.json. null
+// when there is nothing usable, matching upstream Store.parseQuiet.
+function parseQuiet(raw) {
+  var text = String(raw || "")
+  if (!text.trim() || text.length > 262144) return null
+  var read
+  try {
+    read = JSON.parse(text)
+  } catch (e) {
+    return null
+  }
+  if (!read || typeof read !== "object" || Array.isArray(read)) return null
+  return { dnd: read.dnd === true }
+}
+
 function shouldRenderCompactGlyph(glyph, iconSource, singleLineToast) {
   return String(glyph || "").length > 0 && String(iconSource || "").length === 0 && !!singleLineToast
 }
@@ -195,6 +260,7 @@ function snapshotOf(notification, timestamp) {
     image: n.image || "",
     glyph: glyphFromHints(n.hints),
     execArgv: execArgvFromHints(n.hints),
+    execActions: execActionsFromHints(n.hints),
     urgency: n.urgency,
     expireTimeout: expireTimeout,
     timestamp: timestamp === undefined ? Date.now() : timestamp
@@ -203,7 +269,7 @@ function snapshotOf(notification, timestamp) {
 
 // Everything the popup card draws, and therefore everything an in-place
 // update has to write through to the row and its file.
-var POPUP_ROLES = ["app", "appIcon", "summary", "body", "image", "glyph", "execArgv", "urgency", "expireTimeout"]
+var POPUP_ROLES = ["app", "appIcon", "summary", "body", "image", "glyph", "execArgv", "execActions", "urgency", "expireTimeout"]
 
 function popupRoles() {
   return POPUP_ROLES
@@ -246,6 +312,12 @@ function historyEntry(value, normalUrgency) {
     image: e.image || "",
     glyph: e.glyph || "",
     execArgv: e.execArgv || "",
+    // Files written before 4.5's --action have no execActions; re-validated
+    // here because a file on disk is as untrusted as the hint it came from.
+    execActions: (function() {
+      var actions = parseExecActions(e.execActions)
+      return actions ? JSON.stringify(actions) : ""
+    })(),
     urgency: typeof e.urgency === "number" ? e.urgency : normalUrgency,
     expireTimeout: 0,
     timestamp: e.timestamp || 0
@@ -458,6 +530,10 @@ if (typeof module !== "undefined") {
     glyphFromHints: glyphFromHints,
     execArgvFromHints: execArgvFromHints,
     parseExecArgv: parseExecArgv,
+    parseExecActions: parseExecActions,
+    execActionsFromHints: execActionsFromHints,
+    execActionLabels: execActionLabels,
+    parseQuiet: parseQuiet,
     shouldRenderCompactGlyph: shouldRenderCompactGlyph,
     snapshotOf: snapshotOf,
     popupRoles: popupRoles,

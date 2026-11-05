@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import Quickshell.Hyprland
 import Quickshell.Services.Notifications
 import qs.Commons
 
@@ -38,6 +39,11 @@ Item {
   // originals don't outlive the notification (see persistablePopup). Each
   // copy lives and dies with the JSON file whose stem it carries.
   readonly property string imagesDir: popupStateDir + "images/"
+  // Omarchy 4.5 keeps Do Not Disturb here instead (upstream Store.js), and its
+  // migration 1792648436 deletes notifications.json after carrying `dnd: true`
+  // over into it. Read only when our own settings file has no DND value, so
+  // DND survives the 4.5 update. Never written by this plugin.
+  readonly property string upstreamQuietPath: popupStateDir + "quiet.json"
   // Corner radius is shared with the menu and shell panels.
   // It mirrors Hyprland's current decoration:rounding value.
   readonly property int cornerRadius: Style.cornerRadius
@@ -435,6 +441,186 @@ Item {
 
   Process { id: focusAppProc; running: false }
 
+  // ---------------------------------------------------- buttons (--action)
+  //
+  // Omarchy 4.5's `omarchy-notification-send --action` buttons, carried in the
+  // execActions role (see NotificationLogic.execActionsFromHints). Each runs
+  // its argv like the click command does, then the card leaves the screen.
+  function actionsAt(index) {
+    if (index < 0 || index >= popupModel.count) return []
+    var entry = popupModel.get(index)
+    return NotificationLogic.parseExecActions(entry ? entry.execActions : "") || []
+  }
+
+  function runExecAction(index, actionIndex) {
+    var actions = actionsAt(index)
+    if (actionIndex < 0 || actionIndex >= actions.length) return false
+    Util.execArgv(actions[actionIndex].argv)
+    dismissPopup(index)
+    return true
+  }
+
+  // Whether a click does something of the card's own: an Omarchy click
+  // command, or the live sender's "default" action. Focusing an app by its
+  // name alone does not count (upstream 4.5 clickable()).
+  function clickableAt(index) {
+    if (index < 0 || index >= popupModel.count) return false
+    var entry = popupModel.get(index)
+    if (!entry) return false
+    if (NotificationLogic.parseExecArgv(entry.execArgv)) return true
+    var ref = !isRestoredRow(entry) ? liveRefs[entry.originalId] : null
+    try {
+      if (ref && ref.actions) {
+        for (var i = 0; i < ref.actions.length; i++)
+          if (ref.actions[i] && ref.actions[i].identifier === "default") return true
+      }
+    } catch (e) {
+      // Torn down by the server — not clickable any more.
+    }
+    return false
+  }
+
+  // SUPER+comma on Omarchy 4.5 (`notifications act`), upstream semantics for
+  // the newest card, its click counting as one choice: with several choices
+  // it takes the keyboard so you can pick; with one, that is done; with none,
+  // the card is dismissed. A chat card with no click command still gets the
+  // usual focus-the-sender attempt, since invokePopupDefault falls back to it.
+  function actOnNewest() {
+    if (popupModel.count === 0) return false
+    var entry = popupModel.get(0)
+    var actions = actionsAt(0)
+    var deeds = actions.length
+    // --action also sets the click command to the first button's argv; that
+    // is one choice, not two, so a single-button card runs it at once rather
+    // than taking the keyboard (upstream 4.5 counts it twice).
+    var click = clickableAt(0)
+      && !(deeds > 0 && JSON.stringify(NotificationLogic.parseExecArgv(entry.execArgv)) === JSON.stringify(actions[0].argv))
+    if (deeds + (click ? 1 : 0) > 1) return startKeyboard(rowKey(entry))
+    if (click) invokePopupDefault(0)
+    else if (deeds) runExecAction(0, 0)
+    else if (entry && entry.originalId >= 0 && !NotificationLogic.isEphemeralApp(String(entry.app || ""))) invokePopupDefault(0)
+    else dismissPopup(0)
+    return true
+  }
+
+  // ---------------------------------------------------- keyboard mode
+  //
+  // SUPER+CTRL+comma on Omarchy 4.5 (`notifications keyboard`). Toasts never
+  // take the keyboard on their own; this hands it to them until Escape, a
+  // choice, the last card leaving, or 10 idle seconds. The popup layer on the
+  // focused monitor takes exclusive keyboard focus while it lasts.
+  //   Up/Down, K/J, Shift+Tab/Tab  move between cards (newest at the top)
+  //   Enter                        click the selected card
+  //   1-3                          press that button on the selected card
+  //   Delete/Backspace             dismiss the selected card
+  //   Escape                       give the keyboard back
+  // Cards stop counting down while it is on.
+  property bool keyboardMode: false
+  // Selected card by file stem (timestamp-originalId): indices shift as cards
+  // arrive and leave, the stem does not.
+  property string keyboardKey: ""
+  property int keyboardIndex: 0
+
+  Timer { id: keyboardIdle; interval: 10000; onTriggered: service.stopKeyboard() }
+
+  function rowKey(row) {
+    return row ? NotificationLogic.imageStem(row) : ""
+  }
+
+  function indexOfKey(key) {
+    if (!key) return -1
+    for (var i = 0; i < popupModel.count; i++)
+      if (rowKey(popupModel.get(i)) === key) return i
+    return -1
+  }
+
+  function selectIndex(index) {
+    if (index < 0 || index >= popupModel.count) return false
+    keyboardIndex = index
+    keyboardKey = rowKey(popupModel.get(index))
+    return true
+  }
+
+  // The monitor whose popup layer takes the keyboard: the focused one.
+  function keyboardScreenName() {
+    var monitor = null
+    try { monitor = Hyprland.focusedMonitor } catch (e) { monitor = null }
+    if (monitor && monitor.name) return String(monitor.name)
+    var screens = Quickshell.screens
+    return screens && screens.length > 0 ? String(screens[0].name) : ""
+  }
+
+  property string keyboardScreen: ""
+
+  function startKeyboard(key) {
+    if (popupModel.count === 0) return false
+    var at = indexOfKey(key || "")
+    keyboardScreen = keyboardScreenName()
+    keyboardMode = true
+    selectIndex(at >= 0 ? at : 0)
+    keyboardIdle.restart()
+    return true
+  }
+
+  function stopKeyboard() {
+    keyboardIdle.stop()
+    keyboardMode = false
+    keyboardKey = ""
+    keyboardIndex = 0
+  }
+
+  // The selected card left (expired, dismissed, replaced): select the one
+  // now standing in its place, or the one above it, or stop.
+  function keepSelection() {
+    if (!keyboardMode) return
+    if (popupModel.count === 0) { stopKeyboard(); return }
+    var at = indexOfKey(keyboardKey)
+    if (at >= 0) { keyboardIndex = at; return }
+    selectIndex(Math.min(Math.max(0, keyboardIndex), popupModel.count - 1))
+  }
+
+  Connections {
+    target: popupModel
+    function onCountChanged() { Qt.callLater(service.keepSelection) }
+  }
+
+  function moveSelection(step) {
+    var at = indexOfKey(keyboardKey)
+    var next = (at < 0 ? keyboardIndex : at) + step
+    if (next >= 0 && next < popupModel.count) selectIndex(next)
+  }
+
+  // True when the key was ours.
+  function keyboardPressed(key, text) {
+    if (!keyboardMode) return false
+    keyboardIdle.restart()
+    var at = indexOfKey(keyboardKey)
+    if (key === Qt.Key_Escape) {
+      stopKeyboard()
+    } else if (key === Qt.Key_Down || key === Qt.Key_J || key === Qt.Key_Tab) {
+      moveSelection(1)
+    } else if (key === Qt.Key_Up || key === Qt.Key_K || key === Qt.Key_Backtab) {
+      moveSelection(-1)
+    } else if (key === Qt.Key_Return || key === Qt.Key_Enter) {
+      stopKeyboard()
+      if (at >= 0) invokePopupDefault(at)
+    } else if (key === Qt.Key_Delete || key === Qt.Key_Backspace) {
+      if (at >= 0) {
+        keyboardIndex = at
+        dismissPopup(at)
+      }
+    } else if (/^[1-9]$/.test(String(text || ""))) {
+      var n = Number(text)
+      if (at >= 0 && n <= actionsAt(at).length) {
+        stopKeyboard()
+        runExecAction(at, n - 1)
+      }
+    } else {
+      return false
+    }
+    return true
+  }
+
   Process {
     id: ensureDirsProc
     command: ["mkdir", "-p", service.stateDir, service.popupStateDir, service.historyDir, service.imagesDir]
@@ -693,6 +879,7 @@ Item {
         image: row.image,
         glyph: row.glyph || "",
         execArgv: row.execArgv || "",
+        execActions: row.execActions || "",
         urgency: row.urgency,
         timestamp: row.timestamp
       }, imagesDir).entry)
@@ -717,6 +904,7 @@ Item {
         image: "",
         glyph: "󰂚",
         execArgv: "",
+        execActions: "",
         urgency: NotificationUrgency.Low,
         expireTimeout: 0,
         timestamp: Date.now()
@@ -838,6 +1026,8 @@ Item {
     // in Component.onCompleted can both end up calling here.
     if (service.settingsLoaded) return
 
+    if (service.quietFallbackPending) return
+
     var parsed = NotificationLogic.parseSettings(raw)
     if (parsed.error) console.warn("notifications: settings parse failed:", parsed.errorMessage || "")
 
@@ -845,13 +1035,52 @@ Item {
       service._hydrating = true
       persisted.doNotDisturb = parsed.dnd
       service._hydrating = false
+      service.finishSettingsLoad(parsed.legacy)
+      return
     }
 
+    // No DND of our own (first run, or Omarchy 4.5's migration deleted
+    // notifications.json): adopt 4.5's quiet.json if there is one, so a DND
+    // that was on stays on across the update. Absent on 4.0.6, where this
+    // reads nothing and changes nothing.
+    service.quietFallbackLegacy = parsed.legacy
+    service.quietFallbackPending = true
+    upstreamQuietProc.command = ["bash", "-c",
+      "[[ -f $1 ]] && head -c 262144 -- \"$1\" 2>/dev/null; true", "--", service.upstreamQuietPath]
+    upstreamQuietProc.running = true
+  }
+
+  property bool quietFallbackPending: false
+  property bool quietFallbackLegacy: false
+
+  Process {
+    id: upstreamQuietProc
+    running: false
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: service.adoptUpstreamQuiet(text)
+    }
+  }
+
+  function adoptUpstreamQuiet(raw) {
+    if (!service.quietFallbackPending || service.settingsLoaded) return
+    service.quietFallbackPending = false
+    var quiet = NotificationLogic.parseQuiet(raw)
+    if (quiet) {
+      service._hydrating = true
+      persisted.doNotDisturb = quiet.dnd
+      service._hydrating = false
+    }
+    // Written back to our own file so the adopted value is ours from now on.
+    service.finishSettingsLoad(service.quietFallbackLegacy || !!quiet)
+  }
+
+  function finishSettingsLoad(rewrite) {
     service.settingsLoaded = true
     // Versions before the history moved into its own directory kept every
     // notification in here. Rewrite once so that dead payload doesn't sit in
     // the file until the next DND toggle happens to clear it.
-    if (parsed.legacy) service.scheduleSettingsSave()
+    if (rewrite) service.scheduleSettingsSave()
   }
 
   function flushSettings() {
@@ -880,8 +1109,40 @@ Item {
 
   // ---------------------------------------------------- IPC
 
+  // Omarchy 4.5 runs keybinding IPC in-process through
+  // shell.serviceFor(...).runShortcut(method). It looks the service up by the
+  // stock id ("omarchy.notifications"), which this clone is not, so on 4.5 the
+  // keys fall back to `omarchy-shell notifications <method>` — which reaches
+  // this handler's target either over the shell socket (IpcRegistry, below)
+  // or through `qs ipc`. Kept for any caller that does find this service.
+  function runShortcut(method) {
+    if (typeof ipcHandler[method] !== "function") return false
+    ipcHandler[method]()
+    return true
+  }
+
   IpcHandler {
+    id: ipcHandler
     target: "notifications"
+
+    // Omarchy 4.5's ShellIpc registers handlers with qs.Commons' IpcRegistry
+    // so omarchy-shell answers over the shell's own socket (~5 ms) instead of
+    // spawning a qs ipc client (~45 ms). Feature-detected: 4.0.6 has no
+    // IpcRegistry, and qs ipc reaches this handler either way.
+    Component.onCompleted: {
+      try {
+        if (typeof IpcRegistry !== "undefined" && IpcRegistry && typeof IpcRegistry.register === "function")
+          IpcRegistry.register(ipcHandler)
+      } catch (e) {
+      }
+    }
+    Component.onDestruction: {
+      try {
+        if (typeof IpcRegistry !== "undefined" && IpcRegistry && typeof IpcRegistry.unregister === "function")
+          IpcRegistry.unregister(ipcHandler)
+      } catch (e) {
+      }
+    }
 
     function dndState(): string {
       return service.doNotDisturb ? "on" : "off"
@@ -925,6 +1186,23 @@ Item {
       service.dismissPopup(0)
       return "ok"
     }
+
+    // SUPER+comma on 4.5: dismiss, run, or pick from the newest card.
+    function act(): string { return service.actOnNewest() ? "ok" : "none" }
+
+    // SUPER+CTRL+comma on 4.5: hand the keyboard to the cards, or take it back.
+    function keyboard(): string {
+      if (service.keyboardMode) { service.stopKeyboard(); return "off" }
+      return service.startKeyboard("") ? "on" : "none"
+    }
+
+    // Press button n (from 1) on the newest card.
+    function invokeAction(n: int): string {
+      if (popupModel.count === 0) return "none"
+      return service.runExecAction(0, n - 1) ? "ok" : "none"
+    }
+
+    function count(): string { return String(popupModel.count) }
 
     // Fire the default action on the most recent popup, then dismiss it.
     function invokeLast(): string {
@@ -987,11 +1265,26 @@ Item {
 
       WlrLayershell.namespace: "omarchy-notifications"
       WlrLayershell.layer: WlrLayer.Overlay
-      WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+      // Passive, except on the focused monitor while keyboard mode is on.
+      readonly property bool takesKeyboard: service.keyboardMode && service.keyboardScreen === String(modelData.name)
+      WlrLayershell.keyboardFocus: takesKeyboard ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
       exclusionMode: ExclusionMode.Ignore
       color: "transparent"
 
       readonly property var popupPlacement: service.popupPlacementFor(modelData.name)
+
+      // The window can be granted the keyboard after the binding flips, so
+      // focus is forced once it has (as 4.0.6's image picker does).
+      onTakesKeyboardChanged: if (takesKeyboard) Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+
+      Item {
+        id: keyCatcher
+        anchors.fill: parent
+        focus: popupWindow.takesKeyboard
+        Keys.onPressed: function(event) {
+          event.accepted = service.keyboardPressed(event.key, event.text)
+        }
+      }
 
       // Full-screen, fixed-size surface (like the OSD overlay). Adding or
       // removing a toast changes only the content inside; the Wayland surface
@@ -1026,6 +1319,8 @@ Item {
             required property string body
             required property string image
             required property string glyph
+            required property string execActions
+            required property int originalId
             required property int urgency
             required property double expireTimeout
             required property double timestamp
@@ -1038,7 +1333,7 @@ Item {
 
             readonly property real lifetime: service.durationFor(cardSlot.urgency, cardSlot.expireTimeout)
             property real remainingLifetime: 1.0
-            readonly property bool ticking: cardSlot.lifetime > 0 && !card.hovered
+            readonly property bool ticking: cardSlot.lifetime > 0 && !card.hovered && !service.keyboardMode
 
             // A client updating this notification in place rewrites the row
             // under the card (see refreshPopup). New text deserves a full look,
@@ -1077,9 +1372,12 @@ Item {
               cornerRadius: service.cornerRadius
               fontFamily: service.shell && service.shell.bar ? service.shell.bar.fontFamily : ""
               glyph: cardSlot.glyph
+              actionLabels: NotificationLogic.execActionLabels(cardSlot.execActions)
+              selected: service.keyboardMode && service.keyboardKey === NotificationLogic.imageStem({ timestamp: cardSlot.timestamp, originalId: cardSlot.originalId })
 
               onCloseRequested: service.dismissPopup(cardSlot.index)
               onCardClicked: service.invokePopupDefault(cardSlot.index)
+              onActionClicked: function(actionIndex) { service.runExecAction(cardSlot.index, actionIndex) }
             }
           }
         }

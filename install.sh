@@ -38,11 +38,20 @@ This will install into your home folder:
   - fastfetch and foot     -> ~/.config/fastfetch/, ~/.config/foot/
   - helper scripts         -> ~/.local/share/, ~/.local/bin/
   - Hello Lock, Theme Studio, Tricky Tiles and Softly from their own GitHub repos
+  - one system package if missing: qt6-5compat (asks for your password)
 
 Anything it replaces is backed up to a new folder in ~/.config/omarchy-dotfiles-backup/.
 EOF
   read -r -p "Continue? [y/N] " answer || answer=""
   [[ "$answer" == [yY]* ]] || { echo "Nothing changed."; exit 0; }
+fi
+
+# The rail, Workspaces and the floating bar draw their edges with
+# Qt5Compat.GraphicalEffects. A fresh Omarchy install doesn't ship it, and
+# without it the bar falls back to Omarchy's own.
+if ! pacman -Q qt6-5compat >/dev/null 2>&1; then
+  echo "Installing qt6-5compat (needs your password)..."
+  omarchy-pkg-add qt6-5compat || { echo "Couldn't install qt6-5compat; nothing changed." >&2; exit 1; }
 fi
 
 # A fresh, unique backup folder for this run.
@@ -104,6 +113,12 @@ missing=()
 for entry in "${external[@]}"; do
   read -r repo id <<<"$entry"
   save "$config/omarchy/plugins/$id"
+  if [[ -f "$config/omarchy/plugins/$id/manifest.json" ]]; then
+    # Already installed (a re-run): update it in place and make sure it's on.
+    omarchy plugin update "$id" --yes || echo "  could not update $id; keeping the installed copy"
+    omarchy plugin enable "$id" >/dev/null 2>&1 || true
+    continue
+  fi
   if ! omarchy plugin add "$repo" --enable --yes || [[ ! -f "$config/omarchy/plugins/$id/manifest.json" ]]; then
     echo "  could not add $repo (try later: omarchy plugin add $repo --enable)"
     missing+=("$id")

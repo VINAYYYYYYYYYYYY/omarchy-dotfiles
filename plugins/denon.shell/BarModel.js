@@ -31,7 +31,7 @@ function pinTrayToInner(entries, section) {
   var result = []
   var values = Array.isArray(entries) ? entries : []
   for (var i = 0; i < values.length; i++) {
-    if (entryId(values[i]) === "omarchy.tray" || entryId(values[i]) === "denon.tray") trayEntry = values[i]
+    if (isTrayId(entryId(values[i]))) trayEntry = values[i]
     else result.push(values[i])
   }
   if (trayEntry) {
@@ -39,6 +39,89 @@ function pinTrayToInner(entries, section) {
     else result.push(trayEntry)
   }
   return result
+}
+
+// Omarchy 4.5 splits the bar layout into left, centerBegin, center, centerEnd,
+// right and tray (the tray's drawer). The rail draws three regions, so the
+// extra sections fold into them: centerBegin, center and centerEnd become the
+// center region in that order, and tray entries sit beside the tray widget
+// (see placeTraySection). A 4.0.6 layout has none of the extra keys and comes
+// back exactly as before.
+function isTrayId(id) {
+  return id === "omarchy.tray" || id === "denon.tray"
+}
+
+// The tray drawer's entries go right beside the tray, on its outer side, so
+// the tray itself stays pinned to its section's inner edge (pinTrayToInner):
+// after it in the right section, before it in left/center. With no tray on
+// the bar they end the right section. Takes tray-pinned regions.
+function placeTraySection(layout, trayEntries) {
+  var extra = Array.isArray(trayEntries) ? trayEntries : []
+  if (!isPlainObject(layout) || extra.length === 0) return layout
+  var regions = ["left", "center", "right"]
+  var out = {}
+  for (var r = 0; r < regions.length; r++)
+    out[regions[r]] = Array.isArray(layout[regions[r]]) ? layout[regions[r]].slice() : []
+  for (var i = 0; i < regions.length; i++) {
+    var entries = out[regions[i]]
+    for (var j = 0; j < entries.length; j++) {
+      if (!isTrayId(entryId(entries[j]))) continue
+      var at = regions[i] === "right" ? j + 1 : j
+      out[regions[i]] = entries.slice(0, at).concat(extra, entries.slice(at))
+      return out
+    }
+  }
+  out.right = out.right.concat(extra)
+  return out
+}
+
+// The shell.json sections a rail region draws from, in bar order, then tray,
+// whose entries can sit in any region beside the tray widget.
+function rawSectionsFor(region) {
+  var sections = region === "center" ? ["centerBegin", "center", "centerEnd"] : [String(region || "")]
+  if (region !== "tray") sections.push("tray")
+  return sections
+}
+
+// Where a widget the rail draws in `region` lives in the raw layout:
+// { section, index }, or null. Sections missing from the layout are skipped,
+// so a 4.0.6 layout only ever resolves to the region's own section.
+function locateRawEntry(layout, region, name) {
+  if (!isPlainObject(layout)) return null
+  var sections = rawSectionsFor(region)
+  for (var s = 0; s < sections.length; s++) {
+    var entries = layout[sections[s]]
+    if (!Array.isArray(entries)) continue
+    for (var i = 0; i < entries.length; i++) {
+      if (entryId(entries[i]) === name) return { section: sections[s], index: i }
+    }
+  }
+  return null
+}
+
+// The raw section a drop at the end of a rail region appends to: the center
+// region ends with centerEnd once that holds anything.
+function rawAppendSection(layout, region) {
+  if (region === "center" && isPlainObject(layout) && Array.isArray(layout.centerEnd) && layout.centerEnd.length > 0)
+    return "centerEnd"
+  return String(region || "")
+}
+
+// The bar background look: "opaque", "glassy" or "none". Omarchy 4.5 writes
+// bar.background (and drops bar.transparent); a 4.0.6 config only says
+// transparent. Like the 4.5 bar, any other background value reads as opaque.
+function backgroundLook(config) {
+  var cfg = isPlainObject(config) ? config : {}
+  var value = typeof cfg.background === "string" ? cfg.background.trim().toLowerCase() : ""
+  if (value !== "") return value === "none" || value === "glassy" ? value : "opaque"
+  return cfg.transparent === true ? "none" : "opaque"
+}
+
+// none -> glassy -> opaque -> none, as `omarchy-bar background cycle` steps.
+function nextBackgroundLook(look) {
+  if (look === "none") return "glassy"
+  if (look === "glassy") return "opaque"
+  return "none"
 }
 
 function moduleString(entry, key, fallback) {
