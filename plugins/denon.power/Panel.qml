@@ -104,13 +104,15 @@ Panel {
 
   // Every state shares one look: battery = frosted, low = urgent, plugged in = accent.
   readonly property bool lowBattery: previewLow || !pluggedIn && batteryPresent && batteryFraction <= 0.2
+  // The bar can be null while the panel is first built.
+  readonly property color barInk: bar ? bar.foreground : Commons.Color.foreground
   readonly property color stateColor: pluggedIn ? chargeColor : lowBattery ? Commons.Color.urgent : (bar ? bar.foreground : Commons.Color.foreground)
   readonly property color floodColor: (pluggedIn || lowBattery) ? stateColor : Qt.rgba(stateColor.r, stateColor.g, stateColor.b, 0.17)
   readonly property color floodInk: (pluggedIn || lowBattery) ? Commons.Color.background : (bar ? bar.foreground : Commons.Color.foreground)
 
   readonly property color batteryFillColor: {
     if (root.pluggedIn) return root.chargeColor
-    return root.bar ? root.bar.foreground : Commons.Color.foreground
+    return root.bar ? root.barInk : Commons.Color.foreground
   }
 
   function chargeLine() {
@@ -311,8 +313,8 @@ Panel {
           width: capsuleRow.implicitWidth + Style.space(12)
           radius: height / 2
           readonly property bool solid: root.pluggedIn || root.lowBattery
-          readonly property color ink: solid ? Commons.Color.background : root.bar.foreground
-          color: solid ? root.stateColor : Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.13)
+          readonly property color ink: solid ? Commons.Color.background : root.barInk
+          color: solid ? root.stateColor : Qt.rgba(root.barInk.r, root.barInk.g, root.barInk.b, 0.13)
           Behavior on color { ColorAnimation { duration: 220 } }
           Row {
             id: capsuleRow
@@ -434,7 +436,7 @@ Panel {
           Rectangle {
             anchors.fill: parent
             radius: flood.radiusPx
-            color: Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.07)
+            color: Qt.rgba(root.barInk.r, root.barInk.g, root.barInk.b, 0.07)
           }
 
           Item {
@@ -478,7 +480,7 @@ Panel {
             }
           }
 
-          FloodLabels { anchors.fill: parent; ink: root.bar.foreground }
+          FloodLabels { anchors.fill: parent; ink: root.barInk }
           Item {
             width: floodFill.width
             height: parent.height
@@ -496,7 +498,7 @@ Panel {
         Motion.GlassTile {
           visible: root.batteryInfo.percentage !== undefined
           width: parent.width
-          foreground: root.bar.foreground
+          foreground: root.barInk
           implicitHeight: statsRow.implicitHeight + Style.space(20)
 
         Row {
@@ -530,7 +532,7 @@ Panel {
 
         // ---------- Power profile picker ----------
         Motion.GlassSeparator {
-          foreground: root.bar.foreground
+          foreground: root.barInk
         }
 
         Column {
@@ -539,13 +541,13 @@ Panel {
 
           Motion.GlassSection {
             text: Motion.PanelMotion.tide ? "Power profile" : "POWER PROFILE"
-            foreground: root.bar.foreground
+            foreground: root.barInk
             fontFamily: root.bar.fontFamily
           }
 
           Motion.GlassTrack {
             width: parent.width
-            foreground: root.bar.foreground
+            foreground: root.barInk
 
           Row {
             id: profileRow
@@ -566,7 +568,7 @@ Panel {
                 iconSize: Style.font.title
                 text: String(modelData).charAt(0).toUpperCase() + String(modelData).slice(1)
                 fontSize: Style.font.bodySmall
-                foreground: root.bar.foreground
+                foreground: root.barInk
                 fontFamily: root.bar.fontFamily
                 horizontalPadding: Style.spacing.controlPaddingX
                 verticalPadding: Style.spacing.controlPaddingY + Style.space(1)
@@ -590,7 +592,7 @@ Panel {
   }
 
   component FloodLabels: Item {
-    property color ink: root.bar.foreground
+    property color ink: root.barInk
 
     Row {
       x: Style.space(16)
@@ -650,7 +652,7 @@ Panel {
 
   component InfoLabel: Text {
     textFormat: Text.PlainText
-    color: root.bar.foreground
+    color: root.barInk
     opacity: 0.6
     font.family: root.bar.fontFamily
     font.pixelSize: Style.font.bodySmall
@@ -658,7 +660,7 @@ Panel {
 
   component InfoValue: Text {
     textFormat: Text.PlainText
-    color: root.bar.foreground
+    color: root.barInk
     font.family: root.bar.fontFamily
     font.pixelSize: Style.font.bodySmall
   }

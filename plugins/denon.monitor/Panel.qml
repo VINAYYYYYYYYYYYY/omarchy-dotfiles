@@ -74,9 +74,9 @@ Panel {
     for (var i = 0; i < displays.length; i++) {
       var display = displays[i]
       if (display && display.focused)
-        return Model.availableScales(scalePresets, display.width, display.height)
+        return Model.availableScales(scalePresets, display.width, display.height) || []
     }
-    return scalePresets
+    return scalePresets || []
   }
   property string focusSection: "scale"
   property int selectedIndex: 0
@@ -113,7 +113,7 @@ Panel {
   function sectionCount(section) {
     if (section === "brightness") return 0  // only the slider sentinel at -1
     if (section === "textsize") return 0    // slider sentinel at -1, like brightness
-    if (section === "scale") return scaleValues.length
+    if (section === "scale") return (scaleValues || []).length
     if (section === "toggles") return 2
     if (section === "monitors") return displays.length
     return 0
