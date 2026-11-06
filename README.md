@@ -149,6 +149,25 @@ These are wired up if they're installed and skipped if not:
 - **Voxtype** for Softly dictation.
 - **Brave** for the four-finger tab swipes.
 
+### Test multi-monitor workspaces
+
+Omarchy 4.5 gives every monitor its own workspaces 1–10, numbered in blocks
+(1–10, 11–20, …). The workspaces widget follows the monitor its bar is on, so
+each rail marks that monitor's current workspace even while another monitor has
+focus.
+
+`tests/multi-monitor-workspaces.sh` checks this without touching your session.
+It starts a nested Hyprland in a temporary home, adds a virtual second monitor,
+runs only the Pebble bar and the workspaces widget, and saves screenshots of
+both rails before and after switching them to different workspaces.
+
+```bash
+./tests/multi-monitor-workspaces.sh
+```
+
+It needs Hyprland, `grim`, `jq` and Quickshell (all part of Omarchy), prints the
+screenshot folder, and leaves your real shell, config and state alone.
+
 ## Make it yours
 
 **Name.** The menu title and the fastfetch heading read one setting. Add this to `~/.config/omarchy/extensions/omarchy-menu.jsonc`:
@@ -171,7 +190,8 @@ Copy the files from `~/.config/omarchy-dotfiles-backup/<time>/` back into your h
 
 ## Notes
 
-- Built and used on one laptop (Zenbook 14, single screen), on Omarchy 4.0.6 and then 4.5.0. Multiple monitors are untested.
+- Built and used on one laptop (Zenbook 14), on Omarchy 4.0.6 and then 4.5.0. The 4.5 per-monitor workspace indicator is tested against a virtual second monitor with `tests/multi-monitor-workspaces.sh`; multiple physical monitors are still worth a quick look.
+- If a second monitor has no marked workspace after updating, the installed widget is probably stale: re-run `./install.sh` (it backs up first) and restart the shell. The pre-4.5 widget only knows workspaces 1–10, so a monitor on 11–20 shows no active chip.
 - The Touchpad drawer finds your touchpad automatically. If it picks the wrong one, set `TOUCHPAD_DEVICE` to the name shown by `hyprctl devices`.
 - `denon.agents` replaces Omarchy's Codex usage reader with one that fixes a read timeout. Remove `~/.local/bin/denon-agent-usage-update` to go back to the stock reader.
 
