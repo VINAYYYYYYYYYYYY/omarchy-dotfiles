@@ -158,15 +158,20 @@ focus.
 
 `tests/multi-monitor-workspaces.sh` checks this without touching your session.
 It starts a nested Hyprland in a temporary home, adds a virtual second monitor,
-runs only the Pebble bar and the workspaces widget, and saves screenshots of
-both rails before and after switching them to different workspaces.
+runs only the Pebble bar and the workspaces widget, and switches the two
+monitors to different workspaces. It checks Hyprland's workspace on each
+monitor, then finds the active chip in each rail's screenshot and checks that it
+sits on that monitor's own workspace (a rail that follows the other monitor, or
+a stale widget that shows no chip on 11–20, fails). Your theme state is copied
+into the test home, not linked.
 
 ```bash
 ./tests/multi-monitor-workspaces.sh
 ```
 
-It needs Hyprland, `grim`, `jq` and Quickshell (all part of Omarchy), prints the
-screenshot folder, and leaves your real shell, config and state alone.
+It needs Hyprland, `grim`, `jq`, ImageMagick and Quickshell (all part of
+Omarchy), prints the screenshot folder (with `chips.txt`, where it found each
+chip), and leaves your real shell, config and state alone.
 
 ## Make it yours
 
